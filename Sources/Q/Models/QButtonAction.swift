@@ -2,6 +2,7 @@ import Foundation
 
 public enum QButtonAction: Codable, Equatable, Sendable {
     case changeScene(UUID)
+    case setState(QState)
     case cycleScene
     case turnOff
     case toggleAutomaticManual
@@ -9,9 +10,12 @@ public enum QButtonAction: Codable, Equatable, Sendable {
     case toggleFocusMode
     case lockMac
     case focusSource
+    case focusHighestPrioritySource
+    case focusFailedSource
     case cycleActiveSources
     case acknowledge
     case interruptSource
+    case openResult
     case toggleMeetingMute
     case raiseHand
     case focusMeetingApplication

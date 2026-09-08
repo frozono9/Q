@@ -9,6 +9,7 @@ public final class VirtualQDevice: ObservableObject, QDevice {
 
     @Published public private(set) var isConnected = false
     @Published public private(set) var currentScene: QScene = .idle
+    @Published public private(set) var sceneAppliedAt = Date.now
     @Published public private(set) var lastButtonEvent: QButtonEvent?
 
     public let buttonEvents: AsyncStream<QButtonEvent>
@@ -39,6 +40,7 @@ public final class VirtualQDevice: ObservableObject, QDevice {
     public func apply(scene: QScene) async throws {
         guard isConnected else { throw QDeviceError.notConnected }
         currentScene = scene
+        sceneAppliedAt = .now
         logger.debug("Applied scene: \(scene.name, privacy: .public)")
     }
 
@@ -48,6 +50,7 @@ public final class VirtualQDevice: ObservableObject, QDevice {
             throw QDeviceError.invalidLEDIndex(index)
         }
         currentScene.leds[index] = state
+        sceneAppliedAt = .now
         logger.debug("Updated virtual LED \(index)")
     }
 

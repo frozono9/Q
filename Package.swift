@@ -20,7 +20,7 @@ let package = Package(
             name: "Q",
             dependencies: ["QCore"],
             path: "Sources/Q",
-            sources: ["App", "UI"]
+            sources: ["App", "Integrations", "UI"]
         ),
         .testTarget(
             name: "QTests",

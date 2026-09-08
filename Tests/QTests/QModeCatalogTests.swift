@@ -3,8 +3,17 @@ import Testing
 
 @Suite("Prepackaged modes")
 struct QModeCatalogTests {
-    @Test func shipsTheSixLaunchModes() {
-        #expect(QModeCatalog.presets.map(\.id) == QMode.allCases)
+    @Test func exposesExactlyFourPrimaryModes() {
+        #expect(QMode.primaryModes == [.aiAgents, .availability, .meetings, .pomodoro])
+        #expect(!QMode.primaryModes.contains(.builds))
+        #expect(!QMode.primaryModes.contains(.custom))
+    }
+
+    @Test func integrationOwnedModesDoNotExposeManualStateControl() {
+        #expect(QMode.aiAgents.isExternallyManaged)
+        #expect(QMode.meetings.isExternallyManaged)
+        #expect(!QMode.availability.isExternallyManaged)
+        #expect(!QMode.pomodoro.isExternallyManaged)
     }
 
     @Test func everyPresetHasAResolvableDefaultAndThreeLEDScenes() {
@@ -17,12 +26,29 @@ struct QModeCatalogTests {
         }
     }
 
-    @Test func permissionIsTheHighestPriorityAgentState() {
-        let permission = QModeCatalog.aiAgents.states.first { $0.state == .permissionRequired }
-        let others = QModeCatalog.aiAgents.states.filter { $0.state != .permissionRequired }
+    @Test func factoryPresetsFollowTheMVPVisualGrammar() throws {
+        let agentIdle = try #require(state("idle", in: .aiAgents))
+        let agentWorking = try #require(state("working", in: .aiAgents))
+        let needsYou = try #require(state("needs-input", in: .aiAgents))
+        let done = try #require(state("done", in: .aiAgents))
+        let error = try #require(state("error", in: .aiAgents))
+        let availabilityFocus = try #require(state("focus", in: .availability))
+        let meetingMuted = try #require(state("muted", in: .meetings))
 
-        #expect(permission?.priority == 95)
-        #expect(others.allSatisfy { $0.priority < 95 })
+        expectAllLEDs(agentIdle, color: .green, animation: .chaseUp)
+        expectAllLEDs(agentWorking, color: .amber, animation: .chaseUp)
+        expectAllLEDs(needsYou, color: .blue, animation: .fadeInOut)
+        expectAllLEDs(done, color: .green, animation: .flashThenSolid)
+        expectAllLEDs(error, color: .red, animation: .blink)
+        expectAllLEDs(availabilityFocus, color: .blue, animation: .solid)
+        expectAllLEDs(meetingMuted, color: .blue, animation: .fadeInOut)
+    }
+
+    @Test func needsYouOutranksWorking() throws {
+        let needsYou = try #require(state("needs-input", in: .aiAgents))
+        let working = try #require(state("working", in: .aiAgents))
+
+        #expect(needsYou.priority > working.priority)
     }
 
     @Test func multiAgentRenderingIsExplicitlySupported() {
@@ -30,11 +56,40 @@ struct QModeCatalogTests {
         #expect(!QModeCatalog.availability.supportsMultiSource)
     }
 
-    @Test func buttonMappingsAreIndependentByTrigger() {
-        let mapping = QModeCatalog.pomodoro.buttonMapping
+    @Test func factoryMappingsUseOneContextualPress() {
+        for mode in QModeCatalog.presets {
+            #expect(mode.buttonMapping.doublePress == .none)
+            #expect(mode.buttonMapping.longPress == .none)
+            for rule in mode.contextualButtonRules {
+                #expect(rule.mapping.doublePress == .none)
+                #expect(rule.mapping.longPress == .none)
+            }
+        }
 
-        #expect(mapping.action(for: .singlePress) == .togglePomodoro)
-        #expect(mapping.action(for: .doublePress) == .skipPomodoro)
-        #expect(mapping.action(for: .longPress) == .cancelPomodoro)
+        #expect(
+            QModeCatalog.aiAgents.buttonMapping(for: .waitingForUser).singlePress
+                == .focusSource
+        )
+        #expect(
+            QModeCatalog.availability.buttonMapping(for: .away).singlePress
+                == .setState(.available)
+        )
+        #expect(
+            QModeCatalog.pomodoro.buttonMapping(for: .pomodoroBreak).singlePress
+                == .skipPomodoro
+        )
+    }
+
+    private func state(_ id: String, in mode: QMode) -> QStatePreset? {
+        QModeCatalog.preset(for: mode).states.first { $0.id == id }
+    }
+
+    private func expectAllLEDs(
+        _ preset: QStatePreset,
+        color: QColor,
+        animation: QAnimation
+    ) {
+        #expect(preset.scene.leds.allSatisfy { $0.color == color })
+        #expect(preset.scene.leds.allSatisfy { $0.animation == animation })
     }
 }

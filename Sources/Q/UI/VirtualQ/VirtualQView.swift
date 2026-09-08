@@ -13,7 +13,12 @@ struct VirtualQView: View {
 
             VStack(spacing: 25) {
                 ForEach(Array(device.currentScene.leds.enumerated()), id: \.offset) { index, led in
-                    VirtualLEDView(state: led, index: index, ledCount: QScene.ledCount)
+                    VirtualLEDView(
+                        state: led,
+                        index: index,
+                        ledCount: QScene.ledCount,
+                        sceneAppliedAt: device.sceneAppliedAt
+                    )
                 }
 
                 VirtualButtonView(device: device)
@@ -58,6 +63,7 @@ private struct VirtualLEDView: View {
     let state: QLEDState
     let index: Int
     let ledCount: Int
+    let sceneAppliedAt: Date
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
@@ -131,6 +137,10 @@ private struct VirtualLEDView: View {
             return 0.18 + 0.82 * ((sin(phase * 2 * .pi - .pi / 2) + 1) / 2)
         case .flash:
             return fraction < 0.13 ? 1 : 0.04
+        case .flashThenSolid:
+            let elapsed = date.timeIntervalSince(sceneAppliedAt)
+            guard elapsed < 1.4 else { return 1 }
+            return Int(floor(elapsed * 7)) % 2 == 0 ? 1 : 0.05
         case .fadeInOut:
             return (sin(phase * 2 * .pi - .pi / 2) + 1) / 2
         case .chaseUp:

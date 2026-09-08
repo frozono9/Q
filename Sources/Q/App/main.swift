@@ -1,4 +1,6 @@
 import AppKit
+import OSLog
+import ServiceManagement
 import SwiftUI
 
 struct QApp: App {
@@ -13,13 +15,20 @@ struct QApp: App {
 
 @MainActor
 final class QAppDelegate: NSObject, NSApplicationDelegate {
+    private static let statusItemAutosaveName = "QStatusItem"
+    private static let statusItemPositionKey =
+        "NSStatusItem Preferred Position \(statusItemAutosaveName)"
+
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
+    private let logger = Logger(subsystem: "app.q", category: "status-item")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSApp.applicationIconImage = QBrandAssets.appIcon
         configureStatusItem()
         configurePopover()
+        registerLaunchAtLoginIfInstalled()
 
         Task {
             await QAppModel.shared.start()
@@ -32,28 +41,100 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func configureStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        guard let button = item.button else { return }
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        logger.notice("Reopening Q from its app icon")
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async { [weak self] in
+            self?.showPopover()
+        }
+        return true
+    }
 
-        button.title = "Q"
-        button.font = roundedMenuBarFont
+    private func configureStatusItem() {
+        if UserDefaults.standard.object(forKey: Self.statusItemPositionKey) == nil {
+            // New status items are otherwise placed at the far-left edge and can
+            // land underneath a MacBook notch when the menu bar is crowded.
+            UserDefaults.standard.set(280, forKey: Self.statusItemPositionKey)
+        }
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.autosaveName = Self.statusItemAutosaveName
+        guard let button = item.button else {
+            logger.fault("AppKit did not create a status-item button")
+            return
+        }
+
+        if let image = QBrandAssets.menuBarImage {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = true
+            button.image = image
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+        } else {
+            button.image = nil
+            button.title = "Q"
+            button.font = roundedMenuBarFont
+        }
         button.toolTip = "Q — ambient status"
         button.target = self
         button.action = #selector(togglePopover)
         button.sendAction(on: [.leftMouseUp])
         button.setAccessibilityLabel("Q")
         button.setAccessibilityHelp("Open Q controls")
+        item.isVisible = true
         statusItem = item
+        logger.notice("Installed visible Q status item")
+
+        Task { @MainActor in
+            item.isVisible = true
+            button.needsDisplay = true
+            try? await Task.sleep(for: .milliseconds(250))
+            let frame = button.window?.frame ?? .zero
+            logger.notice(
+                "Q status attached=\(button.window != nil) visible=\(item.isVisible) frame=\(NSStringFromRect(frame), privacy: .public)"
+            )
+        }
     }
 
     private func configurePopover() {
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 312, height: 470)
+        popover.contentSize = NSSize(width: 320, height: 470)
         popover.contentViewController = NSHostingController(
             rootView: QMenuBarView(model: QAppModel.shared)
         )
+    }
+
+    private func registerLaunchAtLoginIfInstalled() {
+        let installedBundle = URL(fileURLWithPath: "/Applications/Q.app").standardizedFileURL
+        guard Bundle.main.bundleURL.standardizedFileURL == installedBundle else {
+            logger.debug("Skipping launch-at-login registration for development build")
+            return
+        }
+
+        let service = SMAppService.mainApp
+        switch service.status {
+        case .notRegistered, .notFound:
+            register(service)
+        case .enabled:
+            logger.debug("Q is enabled at login")
+        case .requiresApproval:
+            logger.notice("Q launch at login is awaiting approval in System Settings")
+        @unknown default:
+            logger.error("Unknown launch-at-login registration state")
+        }
+    }
+
+    private func register(_ service: SMAppService) {
+        do {
+            try service.register()
+            logger.notice("Registered Q to launch at login; status=\(service.status.rawValue)")
+        } catch {
+            logger.error("Could not register Q to launch at login: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private var roundedMenuBarFont: NSFont {
@@ -65,14 +146,18 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover() {
-        guard let button = statusItem?.button else { return }
-
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            showPopover()
         }
     }
+
+    private func showPopover() {
+        guard let button = statusItem?.button, !popover.isShown else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
 }
 
 QApp.main()

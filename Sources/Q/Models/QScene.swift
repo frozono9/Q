@@ -20,17 +20,16 @@ public struct QScene: Codable, Equatable, Identifiable, Sendable {
 
     public static let working = QScene(
         name: "Working",
-        leds: [
-            .off,
-            QLEDState(color: .amber, brightness: 0.7, animation: .pulse),
-            .off
-        ]
+        leds: Array(
+            repeating: QLEDState(color: .amber, brightness: 0.7, animation: .chaseUp),
+            count: ledCount
+        )
     )
 
     public static let needsAttention = QScene(
         name: "Needs Attention",
         leds: Array(
-            repeating: QLEDState(color: .blue, brightness: 0.85, animation: .pulse),
+            repeating: QLEDState(color: .blue, brightness: 0.85, animation: .fadeInOut),
             count: ledCount
         )
     )

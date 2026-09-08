@@ -5,6 +5,7 @@ public enum QAnimation: String, Codable, CaseIterable, Identifiable, Sendable {
     case blink
     case pulse
     case flash
+    case flashThenSolid
     case fadeInOut
     case chaseUp
     case chaseDown

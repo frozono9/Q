@@ -11,74 +11,100 @@ struct QMenuBarView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 0) {
             header
+            Divider()
             currentStatus
+            Divider()
             modeSection
+            modeContext
+            Divider()
             stateSection
+            Divider()
             footer
         }
-        .padding(18)
-        .frame(width: 312)
+        .frame(width: 320)
     }
 
     private var header: some View {
-        HStack(spacing: 9) {
-            QBrandMark(size: 22, lineWidth: 2.7)
-            Text("Q")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
+        HStack(spacing: 10) {
+            QBrandMark(size: 24, lineWidth: 2.7)
 
-            Spacer()
+            Text(model.selectedMode.name)
+                .font(.headline.weight(.semibold))
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
 
             HStack(spacing: 6) {
                 Circle()
-                    .fill(device.isConnected ? Color.green : Color.secondary)
-                    .frame(width: 6, height: 6)
-                Text(device.isConnected ? "Connected" : "Offline")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(.primary.opacity(0.055), in: Capsule())
-        }
-    }
-
-    private var currentStatus: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 7) {
-                ForEach(Array(device.currentScene.leds.enumerated()), id: \.offset) { _, led in
-                    LEDDot(state: led)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(device.currentScene.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(model.selectedMode.name)
+                    .fill(model.isConnectionActive ? Color.green : Color.secondary)
+                    .frame(width: 7, height: 7)
+                Text(model.connectionLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
 
-            Spacer(minLength: 0)
+    private var currentStatus: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("NOW SHOWING")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.65)
+                        .foregroundStyle(.tertiary)
+                    Text(device.currentScene.name)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    ForEach(Array(device.currentScene.leds.enumerated()), id: \.offset) { _, led in
+                        LEDDot(state: led, size: 18)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Three Q lights showing \(device.currentScene.name)")
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "button.programmable")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 26, height: 26)
+                    .background(Color.accentColor.opacity(0.11), in: Circle())
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("PRESS Q")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(.tertiary)
+                    Text(model.currentButtonActionTitle)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Press Q to \(model.currentButtonActionTitle)")
         }
-        .padding(14)
-        .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.primary.opacity(0.07), lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Current state: \(device.currentScene.name), mode: \(model.selectedMode.name)")
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     private var modeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("MODE")
+        VStack(alignment: .leading, spacing: 7) {
+            sectionLabel("Mode")
 
             Menu {
-                ForEach(QMode.allCases) { mode in
+                ForEach(QMode.primaryModes) { mode in
                     Button {
                         model.selectMode(mode)
                     } label: {
@@ -88,129 +114,271 @@ struct QMenuBarView: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: model.selectedMode.systemImage)
-                        .frame(width: 18)
                         .foregroundStyle(.secondary)
+                        .frame(width: 18)
                     Text(model.selectedMode.name)
-                        .fontWeight(.medium)
+                        .font(.body.weight(.medium))
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
                 .contentShape(Rectangle())
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(.primary.opacity(0.07), lineWidth: 1)
-                }
+                .frame(height: 30)
             }
             .menuStyle(.borderlessButton)
             .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var modeContext: some View {
+        switch model.selectedMode {
+        case .availability:
+            Picker(
+                "Availability control",
+                selection: Binding(
+                    get: { model.availabilityControlMode },
+                    set: { model.setAvailabilityControlMode($0) }
+                )
+            ) {
+                ForEach(QAvailabilityControlMode.allCases, id: \.self) { controlMode in
+                    Text(controlMode.name).tag(controlMode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+
+        case .pomodoro:
+            pomodoroContext
+
+        case .aiAgents where !model.agentSlots.isEmpty:
+            agentContext
+
+        default:
+            EmptyView()
+        }
+    }
+
+    private var pomodoroContext: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(model.pomodoroTimeText)
+                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+                Text(model.selectedStateID == "idle" ? "Focus duration" : "Remaining")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Menu {
+                Section("Focus") {
+                    ForEach(QPomodoroConfiguration.commonFocusDurations, id: \.self) { minutes in
+                        Button("\(minutes) minutes") {
+                            model.setPomodoroFocusMinutes(minutes)
+                        }
+                    }
+                    Stepper(
+                        "Custom: \(model.pomodoroConfiguration.focusMinutes) min",
+                        value: Binding(
+                            get: { model.pomodoroConfiguration.focusMinutes },
+                            set: { model.setPomodoroFocusMinutes($0) }
+                        ),
+                        in: 1...180
+                    )
+                }
+
+                Section("Break") {
+                    Stepper(
+                        "\(model.pomodoroConfiguration.breakMinutes) minutes",
+                        value: Binding(
+                            get: { model.pomodoroConfiguration.breakMinutes },
+                            set: { model.setPomodoroBreakMinutes($0) }
+                        ),
+                        in: 1...60
+                    )
+                }
+            } label: {
+                Label("Duration", systemImage: "timer")
+                    .font(.caption.weight(.medium))
+            }
+            .menuStyle(.borderlessButton)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+    }
+
+    private var agentContext: some View {
+        VStack(spacing: 0) {
+            ForEach(model.agentSlots) { slot in
+                if slot.index > 0 {
+                    Divider().padding(.leading, 24)
+                }
+
+                Button {
+                    model.focusAgent(slot.session)
+                } label: {
+                    HStack(spacing: 9) {
+                        LEDDot(state: slot.session.ledState, size: 10)
+                        Text(slot.session.displayName)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                        Spacer()
+                        Text(slot.session.state.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(height: 28)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
     }
 
     private var stateSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                sectionLabel("STATE")
-                Spacer()
-                if model.activePreset.supportsMultiSource {
-                    Text("Multi-source ready")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
+            sectionLabel("State")
 
-            LazyVGrid(columns: stateColumns, spacing: 7) {
-                ForEach(model.activePreset.states) { preset in
-                    StateChip(
-                        preset: preset,
-                        isSelected: model.selectedStateID == preset.id
-                    ) {
-                        model.apply(preset)
+            if model.selectedMode.isExternallyManaged {
+                externallyManagedState
+            } else {
+                LazyVGrid(columns: stateColumns, spacing: 4) {
+                    ForEach(model.activePreset.states) { preset in
+                        StateOption(
+                            preset: preset,
+                            isSelected: model.selectedStateID == preset.id
+                        ) {
+                            model.apply(preset)
+                        }
                     }
                 }
             }
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
-    private var footer: some View {
-        VStack(spacing: 9) {
-            Divider()
+    private var externallyManagedState: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 9) {
+                LEDDot(
+                    state: device.currentScene.leds.first(where: \.isEnabled) ?? .off,
+                    size: 10
+                )
 
-            HStack(spacing: 8) {
-                Button {
-                    model.toggleVirtualQ()
-                } label: {
-                    Label(
-                        model.isVirtualQVisible ? "Hide device" : "Show device",
-                        systemImage: model.isVirtualQVisible ? "eye.slash" : "eye"
-                    )
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("q", modifiers: [.command, .shift])
+                Text(model.currentStatePreset?.name ?? device.currentScene.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
 
                 Spacer()
 
-                Button {
-                    model.quit()
-                } label: {
-                    Image(systemName: "power")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("q")
-                .help("Quit Q")
+                Label("Automatic", systemImage: "wave.3.right")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
 
-            if let event = device.lastButtonEvent {
-                HStack(spacing: 5) {
-                    Image(systemName: "button.programmable")
-                    Text(event.displayName)
-                }
+            Text(externalStateSourceDescription)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity)
-            }
+                .lineLimit(1)
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var externalStateSourceDescription: String {
+        switch model.selectedMode {
+        case .aiAgents:
+            return model.agentSessions.isEmpty
+                ? "Watching Codex / ChatGPT"
+                : "Driven by live agent activity"
+        case .meetings:
+            return model.isDiscordIntegrationAvailable
+                ? "Driven by Discord voice activity"
+                : "Open Discord to connect"
+        default:
+            return "Managed by its connected source"
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button {
+                model.toggleVirtualQ()
+            } label: {
+                Label(
+                    model.isVirtualQVisible ? "Hide device" : "Show device",
+                    systemImage: model.isVirtualQVisible ? "eye.slash" : "eye"
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("q", modifiers: [.command, .shift])
+
+            Spacer()
+
+            Button {
+                model.quit()
+            } label: {
+                Image(systemName: "power")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("q")
+            .help("Quit Q")
+        }
+        .font(.body)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     private var stateColumns: [GridItem] {
         [
-            GridItem(.flexible(), spacing: 7),
-            GridItem(.flexible(), spacing: 7)
+            GridItem(.flexible(), spacing: 6),
+            GridItem(.flexible(), spacing: 6)
         ]
     }
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.7)
-            .foregroundStyle(.tertiary)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 }
 
 private struct LEDDot: View {
     let state: QLEDState
+    var size: CGFloat = 16
 
     var body: some View {
         Circle()
             .fill(state.isEnabled ? Color(state.color) : Color.white.opacity(0.82))
-            .frame(width: 16, height: 16)
+            .frame(width: size, height: size)
             .overlay {
                 Circle().stroke(.black.opacity(0.16), lineWidth: 0.7)
             }
             .shadow(
-                color: state.isEnabled ? Color(state.color).opacity(state.brightness * 0.65) : .clear,
-                radius: 5
+                color: state.isEnabled ? Color(state.color).opacity(state.brightness * 0.58) : .clear,
+                radius: size * 0.26
             )
     }
 }
 
-private struct StateChip: View {
+private struct StateOption: View {
     let preset: QStatePreset
     let isSelected: Bool
     let action: () -> Void
@@ -221,36 +389,37 @@ private struct StateChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(
                         representativeLED.isEnabled
                             ? Color(representativeLED.color)
-                            : Color.white.opacity(0.75)
+                            : Color.white.opacity(0.78)
                     )
-                    .frame(width: 8, height: 8)
+                    .frame(width: 9, height: 9)
                     .overlay {
                         Circle().stroke(.black.opacity(0.14), lineWidth: 0.5)
                     }
+
                 Text(preset.name)
                     .font(.caption.weight(isSelected ? .semibold : .regular))
                     .lineLimit(1)
-                Spacer(minLength: 0)
+
+                Spacer(minLength: 2)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 32)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 31)
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .background(
-                isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04),
-                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                isSelected ? Color.accentColor.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(
-                        isSelected ? Color.accentColor.opacity(0.42) : Color.primary.opacity(0.055),
-                        lineWidth: 1
-                    )
-            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Set state to \(preset.name)")
@@ -258,12 +427,15 @@ private struct StateChip: View {
     }
 }
 
-private extension QButtonEvent {
+private extension QState {
     var displayName: String {
         switch self {
-        case .singlePress: "Single press"
-        case .doublePress: "Double press"
-        case .longPress: "Long press"
+        case .idle: "Idle"
+        case .working: "Working"
+        case .waitingForUser, .permissionRequired: "Needs you"
+        case .done: "Done"
+        case .error, .failed: "Error"
+        default: "Active"
         }
     }
 }

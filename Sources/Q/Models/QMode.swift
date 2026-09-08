@@ -10,6 +10,13 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    public static let primaryModes: [QMode] = [
+        .aiAgents,
+        .availability,
+        .meetings,
+        .pomodoro
+    ]
+
     public var name: String {
         switch self {
         case .aiAgents: "AI Agents"
@@ -29,6 +36,16 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
         case .pomodoro: "timer"
         case .builds: "hammer"
         case .custom: "slider.horizontal.3"
+        }
+    }
+
+    /// States owned by live integrations are observable, not user-selectable.
+    public var isExternallyManaged: Bool {
+        switch self {
+        case .aiAgents, .meetings:
+            return true
+        case .availability, .pomodoro, .builds, .custom:
+            return false
         }
     }
 }
@@ -76,9 +93,15 @@ public struct QModePreset: Codable, Equatable, Identifiable, Sendable {
     public var defaultState: QStatePreset? {
         states.first { $0.id == defaultStateID }
     }
+
+    public func buttonMapping(for state: QState) -> QButtonMapping {
+        contextualButtonRules.first { $0.state == state }?.mapping ?? buttonMapping
+    }
 }
 
 public enum QModeCatalog {
+    /// App-level factory defaults. Persistence can replace any preset without
+    /// changing the device protocol or firmware behavior.
     public static let presets: [QModePreset] = [
         aiAgents,
         availability,
@@ -112,62 +135,68 @@ public enum QModeCatalog {
     public static let aiAgents = QModePreset(
         id: .aiAgents,
         states: [
-            QStatePreset(id: "idle", name: "Idle", state: .idle, scene: .idle, priority: 0),
-            QStatePreset(id: "working", name: "Working", state: .working, scene: .working, priority: 50),
             QStatePreset(
-                id: "needs-input",
-                name: "Needs Input",
-                state: .waitingForUser,
+                id: "idle",
+                name: "Idle",
+                state: .idle,
+                scene: QScene(name: "Agent Idle", leds: all(.green, animation: .chaseUp, speed: 0.65)),
+                priority: 0
+            ),
+            QStatePreset(
+                id: "working",
+                name: "Working",
+                state: .working,
+                scene: QScene(name: "Agent Working", leds: all(.amber, animation: .chaseUp, speed: 0.9)),
+                priority: 50
+            ),
+            QStatePreset(
+                id: "multiple-agents",
+                name: "Multiple Agents",
+                state: .custom("multipleAgents"),
                 scene: QScene(
-                    name: "Needs Input",
+                    name: "Multiple Agents",
                     leds: [
-                        QLEDState(color: .blue, brightness: 0.75),
-                        QLEDState(color: .blue, brightness: 0.9, animation: .pulse),
-                        QLEDState(color: .blue, brightness: 0.75)
+                        QLEDState(color: .amber, brightness: 0.8),
+                        QLEDState(color: .blue, brightness: 0.85, animation: .fadeInOut),
+                        QLEDState(color: .green, brightness: 0.8)
                     ]
                 ),
                 priority: 90
             ),
             QStatePreset(
-                id: "permission",
-                name: "Permission",
-                state: .permissionRequired,
-                scene: QScene(name: "Permission Required", leds: all(.blue, animation: .pulse, speed: 2.2)),
-                priority: 95
+                id: "needs-input",
+                name: "Needs You",
+                state: .waitingForUser,
+                scene: QScene(name: "Needs You", leds: all(.blue, animation: .fadeInOut, speed: 0.8)),
+                priority: 90
             ),
             QStatePreset(
                 id: "done",
                 name: "Done",
                 state: .done,
-                scene: QScene(name: "Done", leds: all(.green)),
+                scene: QScene(name: "Done", leds: all(.green, animation: .flashThenSolid)),
                 priority: 30
             ),
             QStatePreset(
                 id: "error",
                 name: "Error",
                 state: .error,
-                scene: QScene(
-                    name: "Agent Error",
-                    leds: [
-                        QLEDState(color: .red),
-                        QLEDState(color: .red, animation: .blink, animationSpeed: 1.4),
-                        QLEDState(color: .red)
-                    ]
-                ),
+                scene: QScene(name: "Agent Error", leds: all(.red, animation: .blink, speed: 1.4)),
                 priority: 85
             )
         ],
         defaultStateID: "idle",
-        buttonMapping: QButtonMapping(singlePress: .focusSource, doublePress: .cycleActiveSources),
+        buttonMapping: QButtonMapping(singlePress: .focusSource),
         contextualButtonRules: [
+            QContextualButtonRule(state: .idle, mapping: QButtonMapping(singlePress: .focusSource)),
+            QContextualButtonRule(state: .working, mapping: QButtonMapping(singlePress: .focusSource)),
+            QContextualButtonRule(state: .custom("multipleAgents"), mapping: QButtonMapping(singlePress: .focusHighestPrioritySource)),
             QContextualButtonRule(
                 state: .waitingForUser,
-                mapping: QButtonMapping(singlePress: .focusSource, doublePress: .cycleActiveSources)
-            ),
-            QContextualButtonRule(
-                state: .permissionRequired,
                 mapping: QButtonMapping(singlePress: .focusSource)
-            )
+            ),
+            QContextualButtonRule(state: .done, mapping: QButtonMapping(singlePress: .openResult)),
+            QContextualButtonRule(state: .error, mapping: QButtonMapping(singlePress: .focusFailedSource))
         ],
         supportsMultiSource: true
     )
@@ -176,19 +205,26 @@ public enum QModeCatalog {
         id: .availability,
         states: [
             QStatePreset(id: "available", name: "Available", state: .available, scene: QScene(name: "Available", leds: all(.green)), priority: 10),
-            QStatePreset(id: "focus", name: "Focused", state: .focus, scene: QScene(name: "Focused", leds: all(.amber)), priority: 60),
-            QStatePreset(id: "busy", name: "Busy", state: .busy, scene: QScene(name: "Busy", leds: all(.red)), priority: 70),
+            QStatePreset(id: "focus", name: "Focus", state: .focus, scene: QScene(name: "Focus", leds: all(.blue)), priority: 60),
+            QStatePreset(id: "busy", name: "Busy / DND", state: .busy, scene: QScene(name: "Busy / DND", leds: all(.red)), priority: 70),
             QStatePreset(
                 id: "away",
                 name: "Away",
                 state: .away,
-                scene: QScene(name: "Away", leds: [QLEDState(color: .amber), .off, .off]),
+                scene: QScene(name: "Away", leds: all(.amber, animation: .chaseUp, speed: 0.65)),
                 priority: 10
             ),
             QStatePreset(id: "offline", name: "Offline", state: .offline, scene: .idle, priority: 0)
         ],
         defaultStateID: "available",
-        buttonMapping: QButtonMapping(singlePress: .cycleScene, doublePress: .toggleAutomaticManual, longPress: .turnOff)
+        buttonMapping: QButtonMapping(singlePress: .cycleScene),
+        contextualButtonRules: [
+            QContextualButtonRule(state: .available, mapping: QButtonMapping(singlePress: .cycleScene)),
+            QContextualButtonRule(state: .focus, mapping: QButtonMapping(singlePress: .cycleScene)),
+            QContextualButtonRule(state: .busy, mapping: QButtonMapping(singlePress: .cycleScene)),
+            QContextualButtonRule(state: .away, mapping: QButtonMapping(singlePress: .setState(.available))),
+            QContextualButtonRule(state: .offline, mapping: QButtonMapping(singlePress: .setState(.available)))
+        ]
     )
 
     public static let meetings = QModePreset(
@@ -196,20 +232,20 @@ public enum QModeCatalog {
         states: [
             QStatePreset(id: "free", name: "Free", state: .available, scene: QScene(name: "Free", leds: all(.green)), priority: 10),
             QStatePreset(id: "meeting", name: "In Meeting", state: .meeting, scene: QScene(name: "In Meeting", leds: all(.blue)), priority: 70),
-            QStatePreset(id: "muted", name: "Muted", state: .muted, scene: QScene(name: "Muted", leds: all(.amber)), priority: 70),
-            QStatePreset(id: "presenting", name: "Presenting", state: .presenting, scene: QScene(name: "Presenting", leds: all(.purple)), priority: 80),
             QStatePreset(
-                id: "recording",
-                name: "Recording",
-                state: .recording,
-                scene: QScene(name: "Recording", leds: all(.red, animation: .pulse, speed: 1.2)),
-                priority: 80
+                id: "muted",
+                name: "Muted",
+                state: .muted,
+                scene: QScene(name: "Muted", leds: all(.blue, animation: .fadeInOut, speed: 0.8)),
+                priority: 70
             )
         ],
         defaultStateID: "free",
-        buttonMapping: QButtonMapping(singlePress: .toggleMeetingMute, doublePress: .raiseHand, longPress: .focusMeetingApplication),
+        buttonMapping: QButtonMapping(singlePress: .focusMeetingApplication),
         contextualButtonRules: [
-            QContextualButtonRule(state: .meeting, mapping: QButtonMapping(singlePress: .toggleMeetingMute, doublePress: .raiseHand))
+            QContextualButtonRule(state: .available, mapping: QButtonMapping(singlePress: .focusMeetingApplication)),
+            QContextualButtonRule(state: .meeting, mapping: QButtonMapping(singlePress: .toggleMeetingMute)),
+            QContextualButtonRule(state: .muted, mapping: QButtonMapping(singlePress: .toggleMeetingMute))
         ]
     )
 
@@ -235,10 +271,13 @@ public enum QModeCatalog {
             )
         ],
         defaultStateID: "idle",
-        buttonMapping: QButtonMapping(singlePress: .togglePomodoro, doublePress: .skipPomodoro, longPress: .cancelPomodoro),
+        buttonMapping: QButtonMapping(singlePress: .startPomodoro),
         contextualButtonRules: [
-            QContextualButtonRule(state: .pomodoroFocus, mapping: QButtonMapping(singlePress: .togglePomodoro, doublePress: .skipPomodoro, longPress: .cancelPomodoro)),
-            QContextualButtonRule(state: .pomodoroBreak, mapping: QButtonMapping(singlePress: .togglePomodoro, doublePress: .skipPomodoro, longPress: .cancelPomodoro))
+            QContextualButtonRule(state: .idle, mapping: QButtonMapping(singlePress: .startPomodoro)),
+            QContextualButtonRule(state: .pomodoroFocus, mapping: QButtonMapping(singlePress: .togglePomodoro)),
+            QContextualButtonRule(state: .paused, mapping: QButtonMapping(singlePress: .togglePomodoro)),
+            QContextualButtonRule(state: .pomodoroBreak, mapping: QButtonMapping(singlePress: .skipPomodoro)),
+            QContextualButtonRule(state: .finished, mapping: QButtonMapping(singlePress: .startPomodoro))
         ]
     )
 
@@ -254,9 +293,9 @@ public enum QModeCatalog {
             QStatePreset(id: "deployed", name: "Deployed", state: .deployed, scene: QScene(name: "Deployed", leds: all(.green, animation: .flash)), priority: 30)
         ],
         defaultStateID: "idle",
-        buttonMapping: QButtonMapping(singlePress: .openBuild, doublePress: .retryBuild),
+        buttonMapping: QButtonMapping(singlePress: .openBuild),
         contextualButtonRules: [
-            QContextualButtonRule(state: .failed, mapping: QButtonMapping(singlePress: .openBuild, doublePress: .retryBuild))
+            QContextualButtonRule(state: .failed, mapping: QButtonMapping(singlePress: .openBuild))
         ]
     )
 
