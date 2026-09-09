@@ -257,7 +257,7 @@ public enum QModeCatalog {
                 id: "focus",
                 name: "Focus",
                 state: .pomodoroFocus,
-                scene: QScene(name: "Pomodoro Focus", leds: all(.purple, animation: .pulse, speed: 0.55)),
+                scene: QScene(name: "Pomodoro Focus", leds: all(.purple)),
                 priority: 60
             ),
             QStatePreset(id: "break", name: "Break", state: .pomodoroBreak, scene: QScene(name: "Pomodoro Break", leds: all(.green)), priority: 60),

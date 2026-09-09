@@ -38,6 +38,7 @@ struct QAgentSlotResolverTests {
 
         #expect(scene.leds[0].color == .blue)
         #expect(scene.leds[1].color == .amber)
+        #expect(scene.leds[1].animation == .fadeInOut)
         #expect(!scene.leds[2].isEnabled)
     }
 

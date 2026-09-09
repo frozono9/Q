@@ -3,6 +3,8 @@ import SwiftUI
 
 struct QMenuBarView: View {
     @ObservedObject var model: QAppModel
+    @State private var editingDuration = false
+    @State private var showingSettings = false
     @ObservedObject private var device: VirtualQDevice
 
     init(model: QAppModel) {
@@ -14,25 +16,44 @@ struct QMenuBarView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            currentStatus
-            Divider()
-            modeSection
-            modeContext
-            Divider()
-            stateSection
+            if showingSettings {
+                generalSettings
+            } else {
+                currentStatus
+                modeContext
+                if model.selectedMode == .availability {
+                    stateSection
+                }
+            }
             Divider()
             footer
         }
         .frame(width: 320)
+        .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
             QBrandMark(size: 24, lineWidth: 2.7)
 
-            Text(model.selectedMode.name)
-                .font(.headline.weight(.semibold))
-                .lineLimit(1)
+            Menu {
+                Picker("Mode", selection: Binding(
+                    get: { model.selectedMode },
+                    set: { model.selectMode($0) }
+                )) {
+                    ForEach(QMode.primaryModes) { mode in
+                        Label(mode.name, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(model.selectedMode.name)
+                    .font(.headline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Change Q mode")
 
             Spacer(minLength: 12)
 
@@ -53,13 +74,13 @@ struct QMenuBarView: View {
         VStack(alignment: .leading, spacing: 13) {
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("NOW SHOWING")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.65)
-                        .foregroundStyle(.tertiary)
-                    Text(device.currentScene.name)
+                    Text(statusTitle)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
+                    Text(statusDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: 8)
@@ -73,7 +94,10 @@ struct QMenuBarView: View {
                 .accessibilityLabel("Three Q lights showing \(device.currentScene.name)")
             }
 
-            HStack(spacing: 10) {
+            Button {
+                device.sendButtonEvent(.singlePress)
+            } label: {
+                HStack(spacing: 10) {
                 Image(systemName: "button.programmable")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
@@ -81,83 +105,34 @@ struct QMenuBarView: View {
                     .background(Color.accentColor.opacity(0.11), in: Circle())
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("PRESS Q")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(.tertiary)
                     Text(model.currentButtonActionTitle)
-                        .font(.caption.weight(.medium))
+                        .font(.callout.weight(.medium))
                         .lineLimit(1)
                 }
 
                 Spacer(minLength: 0)
+                Image(systemName: "arrow.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Press Q to \(model.currentButtonActionTitle)")
+            .buttonStyle(.plain)
+            .help("Same action as pressing the Q device")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
     }
 
-    private var modeSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            sectionLabel("Mode")
-
-            Menu {
-                ForEach(QMode.primaryModes) { mode in
-                    Button {
-                        model.selectMode(mode)
-                    } label: {
-                        Label(mode.name, systemImage: mode.systemImage)
-                    }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: model.selectedMode.systemImage)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    Text(model.selectedMode.name)
-                        .font(.body.weight(.medium))
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-                .frame(height: 30)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-    }
-
     @ViewBuilder
     private var modeContext: some View {
         switch model.selectedMode {
-        case .availability:
-            Picker(
-                "Availability control",
-                selection: Binding(
-                    get: { model.availabilityControlMode },
-                    set: { model.setAvailabilityControlMode($0) }
-                )
-            ) {
-                ForEach(QAvailabilityControlMode.allCases, id: \.self) { controlMode in
-                    Text(controlMode.name).tag(controlMode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-
         case .pomodoro:
             pomodoroContext
 
-        case .aiAgents where !model.agentSlots.isEmpty:
+        case .aiAgents where model.agentSlots.count > 1:
             agentContext
 
         default:
@@ -166,52 +141,52 @@ struct QMenuBarView: View {
     }
 
     private var pomodoroContext: some View {
+        VStack(spacing: 12) {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.pomodoroTimeText)
-                    .font(.system(.title3, design: .monospaced).weight(.semibold))
-                Text(model.selectedStateID == "idle" ? "Focus duration" : "Remaining")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                Text("\(model.pomodoroConfiguration.focusMinutes)m focus · \(model.pomodoroConfiguration.breakMinutes)m break")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Menu {
-                Section("Focus") {
-                    ForEach(QPomodoroConfiguration.commonFocusDurations, id: \.self) { minutes in
-                        Button("\(minutes) minutes") {
-                            model.setPomodoroFocusMinutes(minutes)
-                        }
+            if model.selectedStateID != "idle" {
+                Button("Reset") {
+                    if let idle = model.activePreset.states.first(where: { $0.id == "idle" }) {
+                        model.apply(idle)
                     }
-                    Stepper(
-                        "Custom: \(model.pomodoroConfiguration.focusMinutes) min",
-                        value: Binding(
-                            get: { model.pomodoroConfiguration.focusMinutes },
-                            set: { model.setPomodoroFocusMinutes($0) }
-                        ),
-                        in: 1...180
-                    )
                 }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("Stop the timer and return to its configured duration")
+            }
 
-                Section("Break") {
-                    Stepper(
-                        "\(model.pomodoroConfiguration.breakMinutes) minutes",
-                        value: Binding(
-                            get: { model.pomodoroConfiguration.breakMinutes },
-                            set: { model.setPomodoroBreakMinutes($0) }
-                        ),
-                        in: 1...60
-                    )
-                }
+            Button {
+                editingDuration.toggle()
             } label: {
-                Label("Duration", systemImage: "timer")
+                Label(editingDuration ? "Close" : "Edit", systemImage: "timer")
                     .font(.caption.weight(.medium))
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.borderless)
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 12)
+        .padding(.bottom, editingDuration ? 0 : 12)
+        if editingDuration {
+            PomodoroDurationEditor(
+                focusMinutes: model.pomodoroConfiguration.focusMinutes,
+                breakMinutes: model.pomodoroConfiguration.breakMinutes
+            ) { focus, rest in
+                model.setPomodoroFocusMinutes(focus)
+                model.setPomodoroBreakMinutes(rest)
+                editingDuration = false
+            } onCancel: {
+                editingDuration = false
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+        }
+        }
     }
 
     private var agentContext: some View {
@@ -249,11 +224,8 @@ struct QMenuBarView: View {
 
     private var stateSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("State")
+            sectionLabel("Set availability")
 
-            if model.selectedMode.isExternallyManaged {
-                externallyManagedState
-            } else {
                 LazyVGrid(columns: stateColumns, spacing: 4) {
                     ForEach(model.activePreset.states) { preset in
                         StateOption(
@@ -264,68 +236,79 @@ struct QMenuBarView: View {
                         }
                     }
                 }
-            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
     }
 
-    private var externallyManagedState: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 9) {
-                LEDDot(
-                    state: device.currentScene.leds.first(where: \.isEnabled) ?? .off,
-                    size: 10
-                )
-
-                Text(model.currentStatePreset?.name ?? device.currentScene.name)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-
-                Spacer()
-
-                Label("Automatic", systemImage: "wave.3.right")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(externalStateSourceDescription)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+    private var statusTitle: String {
+        if model.selectedMode == .pomodoro {
+            return model.pomodoroTimeText
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
+        if model.selectedMode == .aiAgents, model.agentSlots.count > 1 {
+            return "\(model.agentSlots.count) agents"
+        }
+        return model.currentStatePreset?.name ?? device.currentScene.name
     }
 
-    private var externalStateSourceDescription: String {
+    private var statusDetail: String {
         switch model.selectedMode {
         case .aiAgents:
-            return model.agentSessions.isEmpty
-                ? "Watching Codex / ChatGPT"
-                : "Driven by live agent activity"
+            if model.agentSlots.count > 1 {
+                return "Press Q to open the agent that needs you most."
+            }
+            if let session = model.agentSlots.first?.session {
+                return "Codex · \(session.displayName)"
+            }
+            return model.isCodexIntegrationAvailable
+                ? "Watching for agent activity"
+                : "Start a local Codex task to connect."
         case .meetings:
-            return model.isDiscordIntegrationAvailable
-                ? "Driven by Discord voice activity"
-                : "Open Discord to connect"
+            if !model.isDiscordIntegrationAvailable {
+                return "Open Discord to connect."
+            }
+            if model.selectedStateID == "free" {
+                return "No active Discord call"
+            }
+            return model.isDiscordControlAuthorized
+                ? "Discord voice call"
+                : "Allow Accessibility access to control Discord."
+        case .pomodoro:
+            switch model.selectedStateID {
+            case "idle": return "Ready to focus"
+            case "focus": return "Focus · time remaining"
+            case "paused": return "Focus paused"
+            case "break": return "Break · time remaining"
+            default: return "Phase complete"
+            }
+        case .availability:
+            return "Choose what Q signals to people around you."
         default:
-            return "Managed by its connected source"
+            return ""
         }
     }
 
     private var footer: some View {
         HStack(spacing: 12) {
             Button {
+                showingSettings.toggle()
+            } label: {
+                Label(showingSettings ? "Done" : "Settings", systemImage: showingSettings ? "checkmark" : "gearshape")
+            }
+            .buttonStyle(.plain)
+
+            if !showingSettings {
+            Button {
                 model.toggleVirtualQ()
             } label: {
                 Label(
-                    model.isVirtualQVisible ? "Hide device" : "Show device",
+                    model.isVirtualQVisible ? "Hide preview" : "Show preview",
                     systemImage: model.isVirtualQVisible ? "eye.slash" : "eye"
                 )
             }
             .buttonStyle(.plain)
             .keyboardShortcut("q", modifiers: [.command, .shift])
+            }
 
             Spacer()
 
@@ -344,6 +327,50 @@ struct QMenuBarView: View {
         .font(.body)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+    }
+
+    private var generalSettings: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Button presses")
+                    .font(.title3.weight(.semibold))
+                Text("Choose what the physical Q button does for each gesture.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            gestureSetting("Single press", event: .singlePress, selection: model.gestureSettings.singlePress)
+            gestureSetting("Double press", event: .doublePress, selection: model.gestureSettings.doublePress)
+            gestureSetting("Long press", event: .longPress, selection: model.gestureSettings.longPress)
+
+            Text("Every button press shows the resulting mode and state for five seconds.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+    }
+
+    private func gestureSetting(
+        _ title: String,
+        event: QButtonEvent,
+        selection: QGestureAction
+    ) -> some View {
+        HStack {
+            Text(title).font(.callout.weight(.medium))
+            Spacer()
+            Picker(title, selection: Binding(
+                get: { selection },
+                set: { model.setGestureAction($0, for: event) }
+            )) {
+                ForEach(QGestureAction.allCases) { action in
+                    Text(action.name).tag(action)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 145)
+        }
     }
 
     private var stateColumns: [GridItem] {
@@ -366,7 +393,12 @@ private struct LEDDot: View {
 
     var body: some View {
         Circle()
-            .fill(state.isEnabled ? Color(state.color) : Color.white.opacity(0.82))
+            .fill(Color.white.opacity(0.82))
+            .overlay {
+                Circle()
+                    .fill(Color(state.color))
+                    .opacity(state.isEnabled ? state.brightness : 0)
+            }
             .frame(width: size, height: size)
             .overlay {
                 Circle().stroke(.black.opacity(0.16), lineWidth: 0.7)
@@ -375,6 +407,8 @@ private struct LEDDot: View {
                 color: state.isEnabled ? Color(state.color).opacity(state.brightness * 0.58) : .clear,
                 radius: size * 0.26
             )
+            .animation(.easeOut(duration: 0.8), value: state.isEnabled)
+            .animation(.linear(duration: 1), value: state.brightness)
     }
 }
 
@@ -437,5 +471,80 @@ private extension QState {
         case .error, .failed: "Error"
         default: "Active"
         }
+    }
+}
+
+
+private struct PomodoroDurationEditor: View {
+    @State private var focusText: String
+    @State private var breakText: String
+    @FocusState private var focusField: Bool
+    let onSave: (Int, Int) -> Void
+    let onCancel: () -> Void
+
+    init(focusMinutes: Int, breakMinutes: Int,
+         onSave: @escaping (Int, Int) -> Void, onCancel: @escaping () -> Void) {
+        _focusText = State(initialValue: String(focusMinutes))
+        _breakText = State(initialValue: String(breakMinutes))
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    private var valid: Bool {
+        guard let focus = Int(focusText), let rest = Int(breakText) else { return false }
+        return (1...180).contains(focus) && (1...60).contains(rest)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Focus")
+                Spacer()
+                TextField("Minutes", text: $focusText)
+                    .focused($focusField)
+                    .accessibilityLabel("Focus minutes")
+                    .frame(width: 64)
+                Text("min").foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("Break")
+                Spacer()
+                TextField("Minutes", text: $breakText)
+                    .accessibilityLabel("Break minutes")
+                    .frame(width: 64)
+                Text("min").foregroundStyle(.secondary)
+            }
+            HStack(spacing: 6) {
+                ForEach([15, 25, 45, 60], id: \.self) { minutes in
+                    Button("\(minutes)m") { focusText = String(minutes) }
+                        .buttonStyle(.bordered)
+                        .help("Set focus to \(minutes) minutes")
+                }
+            }
+            Text(valid
+                 ? "Keeps time already spent in the current session."
+                 : "Enter whole minutes: focus 1–180, break 1–60.")
+                .font(.caption2)
+                .foregroundStyle(valid ? Color.secondary : Color.red)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Cancel", action: onCancel)
+                Spacer()
+                Button("Apply") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!valid)
+            }
+        }
+        .font(.caption)
+        .textFieldStyle(.roundedBorder)
+        .padding(12)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+        .onSubmit { save() }
+        .onAppear { focusField = true }
+    }
+
+    private func save() {
+        guard valid, let focus = Int(focusText), let rest = Int(breakText) else { return }
+        onSave(focus, rest)
     }
 }

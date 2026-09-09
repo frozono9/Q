@@ -3,6 +3,10 @@ import OSLog
 import ServiceManagement
 import SwiftUI
 
+extension Notification.Name {
+    static let qShowGestureStatus = Notification.Name("QShowGestureStatus")
+}
+
 struct QApp: App {
     @NSApplicationDelegateAdaptor(QAppDelegate.self) private var appDelegate
 
@@ -21,6 +25,9 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
+    private let gesturePopover = NSPopover()
+    private var gestureStatusObserver: NSObjectProtocol?
+    private var gestureDismissTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "app.q", category: "status-item")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,6 +35,7 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.applicationIconImage = QBrandAssets.appIcon
         configureStatusItem()
         configurePopover()
+        configureGesturePopover()
         registerLaunchAtLoginIfInstalled()
 
         Task {
@@ -36,6 +44,9 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let gestureStatusObserver {
+            NotificationCenter.default.removeObserver(gestureStatusObserver)
+        }
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
@@ -108,6 +119,40 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func configureGesturePopover() {
+        gesturePopover.behavior = .applicationDefined
+        gesturePopover.animates = true
+        gestureStatusObserver = NotificationCenter.default.addObserver(
+            forName: .qShowGestureStatus,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let mode = notification.userInfo?["mode"] as? String ?? "Q"
+            let state = notification.userInfo?["state"] as? String ?? ""
+            Task { @MainActor [weak self] in
+                self?.showGesturePopover(mode: mode, state: state)
+            }
+        }
+    }
+
+    private func showGesturePopover(mode: String, state: String) {
+        guard let button = statusItem?.button else { return }
+        gestureDismissTask?.cancel()
+        gesturePopover.contentSize = NSSize(width: 210, height: 68)
+        gesturePopover.contentViewController = NSHostingController(
+            rootView: QGestureStatusView(mode: mode, state: state)
+        )
+        if gesturePopover.isShown {
+            gesturePopover.performClose(nil)
+        }
+        gesturePopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        gestureDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.gesturePopover.performClose(nil)
+        }
+    }
+
     private func registerLaunchAtLoginIfInstalled() {
         let installedBundle = URL(fileURLWithPath: "/Applications/Q.app").standardizedFileURL
         guard Bundle.main.bundleURL.standardizedFileURL == installedBundle else {
@@ -155,9 +200,29 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let button = statusItem?.button, !popover.isShown else { return }
+        NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
+}
+
+private struct QGestureStatusView: View {
+    let mode: String
+    let state: String
+
+    var body: some View {
+        HStack(spacing: 11) {
+            QBrandMark(size: 25, lineWidth: 2.7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(mode).font(.headline)
+                Text(state).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(width: 210, height: 68)
+    }
 }
 
 QApp.main()

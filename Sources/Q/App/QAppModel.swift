@@ -18,6 +18,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var isDiscordControlAuthorized = false
     @Published private(set) var pomodoroConfiguration: QPomodoroConfiguration
     @Published private(set) var pomodoroRemainingSeconds: Int
+    @Published private(set) var gestureSettings: QGestureSettings
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -27,6 +28,7 @@ final class QAppModel: ObservableObject {
     ]
     private var pomodoroStateID = "idle"
     private var nextPomodoroPhaseID = "break"
+    private var pomodoroPhaseTotalSeconds: Int
     private var pomodoroDeadline: Date?
     private var pomodoroTimerTask: Task<Void, Never>?
     private var virtualWindowController: VirtualQWindowController?
@@ -34,6 +36,7 @@ final class QAppModel: ObservableObject {
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
     private let logger = Logger(subsystem: "app.q", category: "application")
+    private static let gestureSettingsKey = "QGestureSettings"
 
     init(
         virtualDevice: VirtualQDevice = VirtualQDevice(),
@@ -41,7 +44,9 @@ final class QAppModel: ObservableObject {
     ) {
         self.virtualDevice = virtualDevice
         self.pomodoroConfiguration = pomodoroConfiguration
+        gestureSettings = Self.loadGestureSettings()
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
+        pomodoroPhaseTotalSeconds = pomodoroConfiguration.focusMinutes * 60
     }
 
     func start() async {
@@ -78,8 +83,8 @@ final class QAppModel: ObservableObject {
     var currentButtonActionTitle: String {
         switch selectedMode {
         case .aiAgents:
-            if let session = agentSlots.first?.session {
-                return "Open \(session.displayName)"
+            if !agentSlots.isEmpty {
+                return "Open task in Codex"
             }
             switch selectedStateID {
             case "done": return "Open completed agent"
@@ -152,6 +157,12 @@ final class QAppModel: ObservableObject {
             return
         }
         applyFactoryPreset(preset)
+        if mode == .aiAgents {
+            updateAgentSessions(agentSessions, forceRefresh: true)
+        }
+        if mode == .pomodoro, stateID == "focus" || stateID == "break" {
+            applyPomodoroProgress()
+        }
     }
 
     func apply(_ preset: QStatePreset) {
@@ -177,15 +188,43 @@ final class QAppModel: ObservableObject {
         pomodoroConfiguration.focusMinutes = min(max(minutes, 1), 180)
         if pomodoroStateID == "idle" {
             pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
+            pomodoroPhaseTotalSeconds = pomodoroRemainingSeconds
+        } else if pomodoroStateID == "focus" || pomodoroStateID == "paused" {
+            resizePomodoroPhase(totalSeconds: pomodoroConfiguration.focusMinutes * 60)
         }
     }
 
     func setPomodoroBreakMinutes(_ minutes: Int) {
         pomodoroConfiguration.breakMinutes = min(max(minutes, 1), 60)
+        if pomodoroStateID == "break" {
+            resizePomodoroPhase(totalSeconds: pomodoroConfiguration.breakMinutes * 60)
+        }
     }
 
-    func updateAgentSessions(_ sessions: [QAgentSession]) {
-        guard sessions != agentSessions else { return }
+    private func resizePomodoroPhase(totalSeconds: Int) {
+        let now = Date.now
+        let remaining = pomodoroDeadline.map { $0.timeIntervalSince(now) }
+            ?? Double(pomodoroRemainingSeconds)
+        let adjusted = QPomodoroProgress.adjustedRemaining(
+            oldTotal: Double(pomodoroPhaseTotalSeconds),
+            remaining: remaining,
+            newTotal: Double(totalSeconds)
+        )
+        pomodoroPhaseTotalSeconds = totalSeconds
+        pomodoroRemainingSeconds = Int(ceil(adjusted))
+        guard adjusted > 0 else {
+            finishPomodoroPhase(next: pomodoroStateID == "break" ? "focus" : "break")
+            return
+        }
+        // Keep the existing task and pause state; only move its deadline.
+        if pomodoroDeadline != nil {
+            pomodoroDeadline = now.addingTimeInterval(adjusted)
+        }
+        applyPomodoroProgress()
+    }
+
+    func updateAgentSessions(_ sessions: [QAgentSession], forceRefresh: Bool = false) {
+        guard forceRefresh || sessions != agentSessions else { return }
         agentSessions = sessions
         guard selectedMode == .aiAgents else { return }
 
@@ -203,6 +242,8 @@ final class QAppModel: ObservableObject {
             apply(QAgentSlotResolver.scene(for: slots))
         } else if let state = slots.first?.session.state,
                   let preset = activePreset.states.first(where: { $0.state == state }) {
+            // A single agent uses the expressive full-device scene (for example,
+            // the amber three-step chase). Per-agent LED slots begin at two agents.
             applyFactoryPreset(preset)
         }
     }
@@ -256,15 +297,70 @@ final class QAppModel: ObservableObject {
     }
 
     private func handleButtonEvent(_ event: QButtonEvent) {
-        guard let activeState = currentStatePreset else { return }
-
-        let trigger: QButtonTrigger = switch event {
-        case .singlePress: .singlePress
-        case .doublePress: .doublePress
-        case .longPress: .longPress
+        let assignment: QGestureAction = switch event {
+        case .singlePress: gestureSettings.singlePress
+        case .doublePress: gestureSettings.doublePress
+        case .longPress: gestureSettings.longPress
         }
-        let mapping = activePreset.buttonMapping(for: activeState.state)
-        performLocalAction(mapping.action(for: trigger))
+        performGestureAction(assignment, event: event)
+        showGestureStatus()
+    }
+
+    func setGestureAction(_ action: QGestureAction, for event: QButtonEvent) {
+        switch event {
+        case .singlePress: gestureSettings.singlePress = action
+        case .doublePress: gestureSettings.doublePress = action
+        case .longPress: gestureSettings.longPress = action
+        }
+        if let data = try? JSONEncoder().encode(gestureSettings) {
+            UserDefaults.standard.set(data, forKey: Self.gestureSettingsKey)
+        }
+    }
+
+    private func performGestureAction(_ assignment: QGestureAction, event: QButtonEvent) {
+        switch assignment {
+        case .contextual:
+            guard let activeState = currentStatePreset else { return }
+            let trigger: QButtonTrigger = switch event {
+            case .singlePress: .singlePress
+            case .doublePress: .doublePress
+            case .longPress: .longPress
+            }
+            performLocalAction(activePreset.buttonMapping(for: activeState.state).action(for: trigger))
+        case .nextMode:
+            guard let index = QMode.primaryModes.firstIndex(of: selectedMode) else { return }
+            selectMode(QMode.primaryModes[(index + 1) % QMode.primaryModes.count])
+        case .nextState:
+            cycleEditableState()
+        case .showStatus, .none:
+            break
+        }
+    }
+
+    private func cycleEditableState() {
+        guard !selectedMode.isExternallyManaged,
+              selectedMode == .availability,
+              let index = activePreset.states.firstIndex(where: { $0.id == selectedStateID }) else { return }
+        apply(activePreset.states[(index + 1) % activePreset.states.count])
+    }
+
+    private func showGestureStatus() {
+        NotificationCenter.default.post(
+            name: .qShowGestureStatus,
+            object: nil,
+            userInfo: [
+                "mode": selectedMode.name,
+                "state": currentStatePreset?.name ?? virtualDevice.currentScene.name
+            ]
+        )
+    }
+
+    private static func loadGestureSettings() -> QGestureSettings {
+        guard let data = UserDefaults.standard.data(forKey: gestureSettingsKey),
+              let settings = try? JSONDecoder().decode(QGestureSettings.self, from: data) else {
+            return QGestureSettings()
+        }
+        return settings
     }
 
     private func performLocalAction(_ action: QButtonAction) {
@@ -342,9 +438,13 @@ final class QAppModel: ObservableObject {
 
     private func startPomodoroPhase(_ id: String, seconds: Int) {
         pomodoroTimerTask?.cancel()
+        if !(id == "focus" && pomodoroStateID == "paused") {
+            pomodoroPhaseTotalSeconds = seconds
+        }
         pomodoroRemainingSeconds = seconds
         pomodoroDeadline = Date.now.addingTimeInterval(TimeInterval(seconds))
         setPomodoroState(id)
+        applyPomodoroProgress()
 
         pomodoroTimerTask = Task { [weak self] in
             guard let self else { return }
@@ -355,6 +455,7 @@ final class QAppModel: ObservableObject {
                     finishPomodoroPhase(next: id == "focus" ? "break" : "focus")
                     return
                 }
+                applyPomodoroProgress()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -391,6 +492,7 @@ final class QAppModel: ObservableObject {
         pomodoroDeadline = nil
         nextPomodoroPhaseID = "break"
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
+        pomodoroPhaseTotalSeconds = pomodoroRemainingSeconds
         setPomodoroState("idle")
     }
 
@@ -401,6 +503,18 @@ final class QAppModel: ObservableObject {
               let preset = QModeCatalog.pomodoro.states.first(where: { $0.id == id }) else { return }
         selectedStateID = id
         apply(preset.scene)
+    }
+
+    private func applyPomodoroProgress() {
+        guard selectedMode == .pomodoro,
+              pomodoroStateID == "focus" || pomodoroStateID == "break" else { return }
+        apply(
+            QPomodoroProgress.scene(
+                remainingSeconds: pomodoroRemainingSeconds,
+                totalSeconds: pomodoroPhaseTotalSeconds,
+                isBreak: pomodoroStateID == "break"
+            )
+        )
     }
 
     func toggleVirtualQ() {

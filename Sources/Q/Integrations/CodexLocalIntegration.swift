@@ -17,7 +17,11 @@ actor CodexSessionScanner {
     }()
     private let logger = Logger(subsystem: "app.q", category: "codex-scanner")
     private let activeStaleInterval: TimeInterval = 2 * 60 * 60
-    private let completedRetentionInterval: TimeInterval = 5 * 60
+    /// Completion is an event, not an active agent. Keep it just long enough to
+    /// be noticed before freeing the LED slot for the live set.
+    private let completedRetentionInterval: TimeInterval = 10
+    private let errorRetentionInterval: TimeInterval = 5 * 60
+    private let initialTailBytes: UInt64 = 1_048_576
     private var rolloutCache: [URL: CachedRollout] = [:]
 
     func scan(now: Date = .now) -> CodexIntegrationSnapshot {
@@ -35,34 +39,11 @@ actor CodexSessionScanner {
     }
 
     private func recentSessionFiles(in root: URL, now: Date) -> [URL] {
-        let calendar = Calendar(identifier: .gregorian)
-        let days = [now, calendar.date(byAdding: .day, value: -1, to: now)].compactMap { $0 }
-        var results: [URL] = []
-
-        for day in days {
-            let parts = calendar.dateComponents([.year, .month, .day], from: day)
-            guard let year = parts.year, let month = parts.month, let dayNumber = parts.day else { continue }
-            let directory = root
-                .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
-                .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
-                .appendingPathComponent(String(format: "%02d", dayNumber), isDirectory: true)
-
-            guard let urls = try? fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for url in urls where url.pathExtension == "jsonl" {
-                guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
-                      values.isRegularFile == true,
-                      let modifiedAt = values.contentModificationDate,
-                      now.timeIntervalSince(modifiedAt) <= activeStaleInterval else { continue }
-                results.append(url)
-            }
-        }
-
-        return results
+        QCodexSessionDiscovery.recentRolloutFiles(
+            in: root,
+            now: now,
+            activeWithin: activeStaleInterval
+        )
     }
 
     private func session(from fileURL: URL, now: Date) -> QAgentSession? {
@@ -71,8 +52,12 @@ actor CodexSessionScanner {
             guard let latest = rollout.latestActivity,
                   let state = QCodexActivityResolver.state(for: [latest]) else { return nil }
 
-            if (state == .done || state == .error),
+            if state == .done,
                now.timeIntervalSince(latest.date) > completedRetentionInterval {
+                return nil
+            }
+            if state == .error,
+               now.timeIntervalSince(latest.date) > errorRetentionInterval {
                 return nil
             }
 
@@ -80,7 +65,7 @@ actor CodexSessionScanner {
             let displayName = projectName.isEmpty ? "Codex" : projectName
             return QAgentSession(
                 id: rollout.metadata.id,
-                source: "Codex / ChatGPT",
+                source: "Codex",
                 displayName: displayName,
                 state: state,
                 context: [
@@ -114,13 +99,15 @@ actor CodexSessionScanner {
     private func updateRolloutCache(for fileURL: URL) throws -> CachedRollout {
         let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         let fileSize = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let isInitialRead = rolloutCache[fileURL] == nil
+        let initialOffset = fileSize > initialTailBytes ? fileSize - initialTailBytes : 0
         var cached: CachedRollout
         if let existing = rolloutCache[fileURL] {
             cached = existing
         } else {
             cached = CachedRollout(
                 metadata: try readMetadata(from: fileURL),
-                byteOffset: 0,
+                byteOffset: initialOffset,
                 partialLine: Data(),
                 latestActivity: nil
             )
@@ -141,6 +128,13 @@ actor CodexSessionScanner {
 
         var buffer = cached.partialLine
         buffer.append(appendedData)
+        if isInitialRead, initialOffset > 0 {
+            if let newline = buffer.firstIndex(of: 0x0A) {
+                buffer.removeSubrange(...newline)
+            } else {
+                buffer.removeAll()
+            }
+        }
         let hasTrailingNewline = buffer.last == 0x0A
         var lines = buffer.split(separator: 0x0A, omittingEmptySubsequences: true)
         if !hasTrailingNewline, let partial = lines.popLast() {
@@ -160,9 +154,15 @@ actor CodexSessionScanner {
                 continue
             }
             let activity = QCodexActivityEvent(kind: kind, date: date)
-            if cached.latestActivity == nil || cached.latestActivity!.date <= date {
+            if QCodexActivityResolver.shouldReplace(cached.latestActivity, with: activity) {
                 cached.latestActivity = activity
             }
+        }
+        if cached.latestActivity == nil,
+           let modifiedAt = attributes[.modificationDate] as? Date {
+            // A long active turn may have pushed task_started outside the tail.
+            // Recent writes are still reliable evidence that this task is working.
+            cached.latestActivity = QCodexActivityEvent(kind: .started, date: modifiedAt)
         }
         rolloutCache[fileURL] = cached
         return cached
@@ -172,7 +172,7 @@ actor CodexSessionScanner {
         [
             "task_started", "task_complete", "task_failed", "turn/started", "turn/completed",
             "approval", "request_user_input", "userinput", "elicitation", "custom_tool_call_output",
-            "usermessage", "fatal_error"
+            "usermessage", "agentmessage", "final_answer", "fatal_error"
         ].contains { text.contains($0) }
     }
 
@@ -180,6 +180,7 @@ actor CodexSessionScanner {
         let payloadType = (payload["type"] as? String ?? "").lowercased()
         let item = payload["item"] as? [String: Any]
         let itemType = (item?["type"] as? String ?? "").lowercased()
+        let phase = (item?["phase"] as? String ?? "").lowercased()
         let toolName = (payload["name"] as? String ?? item?["name"] as? String ?? "").lowercased()
         let status = (payload["status"] as? String ?? item?["status"] as? String ?? "").lowercased()
 
@@ -197,6 +198,16 @@ actor CodexSessionScanner {
             attentionMarker.contains("userinput") ||
             attentionMarker.contains("elicitation") {
             return .needsUser
+        }
+
+        if payloadType == "item_completed",
+           itemType == "agentmessage",
+           phase == "final_answer",
+           let content = item?["content"] as? [[String: Any]] {
+            let message = content.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            if QCodexPromptClassifier.requestsUserInput(message) {
+                return .needsUser
+            }
         }
 
         if payloadType == "custom_tool_call_output" ||

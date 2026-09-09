@@ -35,6 +35,12 @@ launchable bundle, run `sh Scripts/package-app.sh` and open `.build/Q.app`.
 The menu can hide or show the virtual device. The MVP uses one contextual button
 press; the current action is always shown in the popover.
 
+General Settings configures the physical button's single, double, and long press
+independently. Factory defaults use the contextual action for single press,
+cycle to the next primary mode for double press, and leave long press unassigned.
+Every press shows a compact five-second mode and state confirmation beside the
+menu-bar Q. Settings are persisted locally.
+
 The supplied Q artwork is used consistently for the app icon, menu-bar item, and in-app identity. To regenerate the derived icon assets after replacing `Resources/Brand/qgadget.png`, install ImageMagick and run `sh Scripts/generate-brand-assets.sh`.
 
 ## Verify

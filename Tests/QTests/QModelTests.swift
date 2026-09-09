@@ -45,4 +45,16 @@ struct QModelTests {
 
         #expect(decoded == scene)
     }
+
+    @Test func gestureSettingsShipWithSafeGeneralDefaults() throws {
+        let settings = QGestureSettings()
+
+        #expect(settings.singlePress == .contextual)
+        #expect(settings.doublePress == .nextMode)
+        #expect(settings.longPress == .none)
+        #expect(try JSONDecoder().decode(
+            QGestureSettings.self,
+            from: JSONEncoder().encode(settings)
+        ) == settings)
+    }
 }

@@ -42,7 +42,12 @@ public struct QAgentSession: Codable, Equatable, Identifiable, Sendable {
         case .error, .failed:
             QLEDState(color: .red, brightness: 0.9, animation: .blink, animationSpeed: 1.4)
         case .working:
-            QLEDState(color: .amber, brightness: 0.8)
+            QLEDState(
+                color: .amber,
+                brightness: 0.8,
+                animation: .fadeInOut,
+                animationSpeed: 0.9
+            )
         case .done:
             QLEDState(color: .green, brightness: 0.8)
         default:

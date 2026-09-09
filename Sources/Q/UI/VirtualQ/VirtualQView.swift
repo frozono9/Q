@@ -85,7 +85,9 @@ private struct VirtualLEDView: View {
                     }
                     .shadow(color: .black.opacity(0.6), radius: 8, y: 5)
 
-                if state.isEnabled && intensity > 0.001 {
+                // Keep the light layer mounted so switching off can fade to the
+                // opal surface instead of removing the layer in a single frame.
+                Group {
                     Circle()
                         .fill(
                             RadialGradient(
@@ -104,6 +106,8 @@ private struct VirtualLEDView: View {
                             color: lightColor.opacity(intensity * state.brightness * 0.95),
                             radius: 20
                         )
+                        .animation(.easeOut(duration: 0.8), value: state.isEnabled)
+                        .animation(.linear(duration: 1), value: state.brightness)
                 }
 
                 Circle()
