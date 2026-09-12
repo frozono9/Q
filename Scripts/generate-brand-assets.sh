@@ -40,10 +40,7 @@ magick "$output_dir/QLogo.png" \
 # The app icon is intentionally literal: a flat black macOS tile containing
 # the user's exact white mark. The menu-bar template remains independent so
 # macOS can continue adapting it to light and dark menu bars.
-magick -size 1024x1024 xc:none \
-    -fill '#000000' \
-    -draw 'roundrectangle 62,62 962,962 202,202' \
-    "$work_dir/tile.png"
+magick -size 1024x1024 xc:'#000000' "$work_dir/tile.png"
 
 magick "$app_icon_mark" -trim +repage -resize 620x620 \
     -channel RGB -fill white -colorize 100 +channel \
