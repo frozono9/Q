@@ -37,6 +37,28 @@ the device over USB automatically, mirrors every app scene to the physical LEDs,
 and accepts single-, double-, and long-button presses. See `Firmware/README.md`
 for the one-command PlatformIO upload flow and the verified PCB pin map.
 
+## Distribute Q
+
+Q ships as the familiar drag-to-Applications disk image used by independent Mac
+apps. `Scripts/release-dmg.sh` builds a universal Apple silicon + Intel release,
+packages and Developer-ID signs `Q.app`, creates a compressed `Q-<version>.dmg`
+containing Q beside an Applications shortcut, and verifies the image.
+
+For a public release, first save Apple notary credentials once:
+
+```sh
+xcrun notarytool store-credentials Q-notary
+```
+
+Then build, notarize, staple, and Gatekeeper-check the complete release:
+
+```sh
+Q_NOTARY_PROFILE=Q-notary sh Scripts/release-dmg.sh
+```
+
+The finished download appears under `Dist`. Without `Q_NOTARY_PROFILE`, the same
+command creates a signed local test DMG but intentionally skips notarization.
+
 The menu can hide or show the virtual device. The MVP uses one contextual button
 press; the current action is always shown in the popover.
 

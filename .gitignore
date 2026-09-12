@@ -2,5 +2,6 @@
 .pio/
 .swiftpm/
 DerivedData/
+Dist/
 *.xcuserstate
 .DS_Store
