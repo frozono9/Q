@@ -4,6 +4,7 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 source_art="$project_dir/Resources/Brand/qgadget.png"
 output_dir="$project_dir/Resources/Brand"
+app_icon_mark="$output_dir/QAppIconMark.png"
 
 if ! command -v magick >/dev/null 2>&1; then
     echo "ImageMagick is required to regenerate Q's brand assets." >&2
@@ -12,6 +13,10 @@ fi
 
 if [ ! -f "$source_art" ]; then
     echo "Missing source artwork at $source_art" >&2
+    exit 1
+fi
+if [ ! -f "$app_icon_mark" ]; then
+    echo "Missing app icon mark at $app_icon_mark" >&2
     exit 1
 fi
 
@@ -32,21 +37,20 @@ magick "$output_dir/QLogo.png" \
     -gravity center -background none -extent 72x72 \
     -strip "$output_dir/QMenuBarTemplate.png"
 
-# Build a calm macOS-style icon tile around the user's original black mark.
+# The app icon is intentionally literal: a flat black macOS tile containing
+# the user's exact white mark. The menu-bar template remains independent so
+# macOS can continue adapting it to light and dark menu bars.
 magick -size 1024x1024 xc:none \
-    -fill '#00000030' \
-    -draw 'roundrectangle 86,96 938,950 188,188' \
-    -blur 0x28 "$work_dir/shadow.png"
+    -fill '#000000' \
+    -draw 'roundrectangle 62,62 962,962 202,202' \
+    "$work_dir/tile.png"
 
-magick -size 1024x1024 gradient:'#FCFBF7-#E8E5DC' \
-    \( -size 1024x1024 xc:none -fill white \
-       -draw 'roundrectangle 72,72 952,952 196,196' \) \
-    -alpha off -compose CopyOpacity -composite "$work_dir/tile.png"
+magick "$app_icon_mark" -trim +repage -resize 620x620 \
+    -channel RGB -fill white -colorize 100 +channel \
+    "$work_dir/mark.png"
 
-magick "$output_dir/QLogo.png" -resize 610x610 "$work_dir/mark.png"
-magick "$work_dir/shadow.png" "$work_dir/tile.png" \
-    -compose over -composite \
-    "$work_dir/mark.png" -gravity center -geometry +0-2 \
+magick "$work_dir/tile.png" \
+    "$work_dir/mark.png" -gravity center -geometry +0+2 \
     -compose over -composite \
     -strip "$output_dir/AppIcon.png"
 
