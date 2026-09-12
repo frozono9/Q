@@ -9,6 +9,7 @@ final class QAppModel: ObservableObject {
     static let shared = QAppModel()
 
     let virtualDevice: VirtualQDevice
+    let physicalDevice: SerialQDevice
 
     @Published private(set) var selectedMode: QMode = .aiAgents
     @Published private(set) var selectedStateID = "idle"
@@ -22,6 +23,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var gestureSettings: QGestureSettings
     @Published private(set) var customModes: [QCustomModeDefinition]
     @Published private(set) var selectedCustomModeID: UUID?
+    @Published private(set) var isPhysicalDeviceConnected = false
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -38,6 +40,9 @@ final class QAppModel: ObservableObject {
     private var virtualWindowController: VirtualQWindowController?
     private var customModeEditorController: QCustomModeEditorWindowController?
     private var buttonEventTask: Task<Void, Never>?
+    private var physicalButtonEventTask: Task<Void, Never>?
+    private var physicalConnectionTask: Task<Void, Never>?
+    private var cancellables: Set<AnyCancellable> = []
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
     private let logger = Logger(subsystem: "app.q", category: "application")
@@ -45,10 +50,12 @@ final class QAppModel: ObservableObject {
     private static let customModesKey = "QCustomModes"
 
     init(
-        virtualDevice: VirtualQDevice = VirtualQDevice(),
+        virtualDevice: VirtualQDevice? = nil,
+        physicalDevice: SerialQDevice? = nil,
         pomodoroConfiguration: QPomodoroConfiguration = QPomodoroConfiguration()
     ) {
-        self.virtualDevice = virtualDevice
+        self.virtualDevice = virtualDevice ?? VirtualQDevice()
+        self.physicalDevice = physicalDevice ?? SerialQDevice()
         self.pomodoroConfiguration = pomodoroConfiguration
         let savedCustomModes = Self.loadCustomModes()
         gestureSettings = Self.loadGestureSettings()
@@ -56,6 +63,13 @@ final class QAppModel: ObservableObject {
         selectedCustomModeID = savedCustomModes.first?.id
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
         pomodoroPhaseTotalSeconds = pomodoroConfiguration.focusMinutes * 60
+
+        self.physicalDevice.$isConnected
+            .removeDuplicates()
+            .sink { [weak self] connected in
+                self?.isPhysicalDeviceConnected = connected
+            }
+            .store(in: &cancellables)
     }
 
     func start() async {
@@ -65,6 +79,7 @@ final class QAppModel: ObservableObject {
                 applyFactoryPreset(initialState)
             }
             startListeningForButtonEvents()
+            startPhysicalDeviceConnection()
             startCodexIntegration()
             startDiscordIntegration()
             showVirtualQ()
@@ -171,7 +186,7 @@ final class QAppModel: ObservableObject {
         case .meetings:
             return isDiscordIntegrationAvailable ? "Discord live" : "Discord offline"
         default:
-            return virtualDevice.isConnected ? "Connected" : "Offline"
+            return isPhysicalDeviceConnected ? "Q connected" : "Preview"
         }
     }
 
@@ -179,7 +194,7 @@ final class QAppModel: ObservableObject {
         switch selectedMode {
         case .aiAgents: return isCodexIntegrationAvailable
         case .meetings: return isDiscordIntegrationAvailable
-        default: return virtualDevice.isConnected
+        default: return isPhysicalDeviceConnected
         }
     }
 
@@ -312,6 +327,34 @@ final class QAppModel: ObservableObject {
             guard let self else { return }
             for await event in virtualDevice.buttonEvents {
                 handleButtonEvent(event)
+            }
+        }
+        physicalButtonEventTask = Task { [weak self] in
+            guard let self else { return }
+            for await event in physicalDevice.buttonEvents {
+                handleButtonEvent(event)
+            }
+        }
+    }
+
+    private func startPhysicalDeviceConnection() {
+        guard physicalConnectionTask == nil else { return }
+        physicalConnectionTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                if !physicalDevice.isConnected {
+                    do {
+                        try await physicalDevice.connect()
+                        try await physicalDevice.apply(scene: virtualDevice.currentScene)
+                    } catch QDeviceError.noSerialDevice {
+                        // Normal while Q is unplugged. Discovery retries quietly.
+                    } catch {
+                        logger.error(
+                            "Physical Q connection failed: \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                }
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
@@ -804,6 +847,12 @@ final class QAppModel: ObservableObject {
                 try await virtualDevice.apply(scene: scene)
             } catch {
                 logger.error("Could not apply scene: \(error.localizedDescription, privacy: .public)")
+            }
+            guard physicalDevice.isConnected else { return }
+            do {
+                try await physicalDevice.apply(scene: scene)
+            } catch {
+                logger.error("Could not update physical Q: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

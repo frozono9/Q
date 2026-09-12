@@ -32,6 +32,11 @@ running.
 For development without installing, use `swift run Q`. To create only a local
 launchable bundle, run `sh Scripts/package-app.sh` and open `.build/Q.app`.
 
+The production XIAO ESP32-C3 firmware lives in `Firmware`. Once flashed, Q finds
+the device over USB automatically, mirrors every app scene to the physical LEDs,
+and accepts single-, double-, and long-button presses. See `Firmware/README.md`
+for the one-command PlatformIO upload flow and the verified PCB pin map.
+
 The menu can hide or show the virtual device. The MVP uses one contextual button
 press; the current action is always shown in the popover.
 
@@ -69,11 +74,12 @@ The Swift package can also be opened directly in Xcode when the full Xcode appli
 - `QPomodoroConfiguration` provides configurable local focus/break timing and the standard duration presets.
 - `QCustomModeDefinition` is the persisted declarative format for user-created modes, states, scenes, and safe button actions.
 - `Device/QDevice.swift` is the hardware-independent boundary used by the rest of the app.
-- `Device/VirtualQDevice.swift` implements that boundary and emits button input through `AsyncStream`.
+- `Device/VirtualQDevice.swift` provides the on-screen preview.
+- `Device/SerialQDevice.swift` discovers the physical USB device, mirrors scenes, and forwards its button events.
 - `UI/VirtualQ` renders LED effects in SwiftUI and forwards physical-style button gestures to the device.
 - `App` and `UI/MenuBar` provide the accessory-style menu-bar application shell.
 
-The future serial implementation can conform to `QDevice` without changing integrations, state resolution, or UI consumers.
+The physical and virtual devices share the same `QDevice` contract, so integrations, state resolution, and custom modes drive both identically.
 
 ## Factory visual grammar
 

@@ -9,6 +9,8 @@ public enum QButtonEvent: String, Codable, Equatable, Sendable {
 public enum QDeviceError: LocalizedError, Equatable {
     case notConnected
     case invalidLEDIndex(Int)
+    case noSerialDevice
+    case serialConnection(String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +18,10 @@ public enum QDeviceError: LocalizedError, Equatable {
             "Q is not connected."
         case .invalidLEDIndex(let index):
             "LED index \(index) is outside the valid range 0...\(QScene.ledCount - 1)."
+        case .noSerialDevice:
+            "No physical Q was found over USB."
+        case .serialConnection(let reason):
+            "Could not communicate with Q: \(reason)"
         }
     }
 }
