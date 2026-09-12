@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://q.local/schemas/custom-mode.schema.json",
+  "title": "Q Custom Mode",
+  "type": "object",
+  "required": ["id", "name", "systemImage", "isIncludedInCycle", "states", "defaultStateID"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "systemImage": { "type": "string", "default": "slider.horizontal.3" },
+    "isIncludedInCycle": { "type": "boolean", "default": true },
+    "defaultStateID": { "type": "string", "format": "uuid" },
+    "states": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/state" }
+    }
+  },
+  "$defs": {
+    "state": {
+      "type": "object",
+      "required": ["id", "name", "scene", "buttonMapping"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "scene": { "$ref": "#/$defs/scene" },
+        "buttonMapping": { "$ref": "#/$defs/buttonMapping" }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "required": ["id", "name", "leds"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "leds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/led" }
+        }
+      }
+    },
+    "led": {
+      "type": "object",
+      "required": ["color", "brightness", "isEnabled", "animation", "animationSpeed"],
+      "properties": {
+        "color": { "$ref": "#/$defs/color" },
+        "brightness": { "type": "number", "minimum": 0, "maximum": 1 },
+        "isEnabled": { "type": "boolean" },
+        "animation": {
+          "enum": ["solid", "blink", "pulse", "flash", "flashThenSolid", "fadeInOut", "chaseUp", "chaseDown", "bounce", "progress", "alternating", "gradientShift", "rainbow"]
+        },
+        "animationSpeed": { "type": "number", "exclusiveMinimum": 0 },
+        "phaseOffset": { "type": ["number", "null"] }
+      }
+    },
+    "color": {
+      "type": "object",
+      "required": ["red", "green", "blue"],
+      "properties": {
+        "red": { "type": "number", "minimum": 0, "maximum": 1 },
+        "green": { "type": "number", "minimum": 0, "maximum": 1 },
+        "blue": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "buttonMapping": {
+      "type": "object",
+      "required": ["singlePress", "doublePress", "longPress"],
+      "properties": {
+        "singlePress": { "$ref": "#/$defs/action" },
+        "doublePress": { "$ref": "#/$defs/action" },
+        "longPress": { "$ref": "#/$defs/action" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "enum": ["inheritGlobal", "none", "nextState", "previousState", "turnOff", "openURL", "openApplication", "runShortcut"] },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

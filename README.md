@@ -10,7 +10,7 @@ Discord's primary RTC connection log to detect calls, ignores screen-share RTC
 connections, and can invoke Discord's native mute shortcut after macOS grants Q
 Accessibility control. Meeting states remain read-only in Q.
 
-Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP exposes four primary modes: AI Agents, Availability, Meetings, and Pomodoro. Custom state/rule architecture remains available for the advanced editor without becoming another everyday mode.
+Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with four factory modes: AI Agents, Availability, Meetings, and Pomodoro. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
 
 ## Install Q
 
@@ -41,6 +41,15 @@ cycle to the next primary mode for double press, and leave long press unassigned
 Every press shows a compact five-second mode and state confirmation beside the
 menu-bar Q. Settings are persisted locally.
 
+Custom modes are built in a native visual editor. Each profile can contain
+multiple named states, and every state defines the color, brightness, enabled
+status, and animation of all three LEDs. Single, double, and long presses can
+move between states, switch the lights off, open an HTTPS URL or application,
+or run an Apple Shortcut. Profiles use one local `Codable` model, providing the
+same declarative boundary that future AI, MCP, and SDK adapters can generate.
+The editor imports and exports `.qmode` JSON files; the public contract is
+documented in `Docs/custom-mode.schema.json`.
+
 The supplied Q artwork is used consistently for the app icon, menu-bar item, and in-app identity. To regenerate the derived icon assets after replacing `Resources/Brand/qgadget.png`, install ImageMagick and run `sh Scripts/generate-brand-assets.sh`.
 
 ## Verify
@@ -58,7 +67,7 @@ The Swift package can also be opened directly in Xcode when the full Xcode appli
 - `QModeCatalog` defines the four primary MVP modes, their semantic states, scenes, priorities, and safe default button mappings.
 - `QAgentSlotResolver` assigns the three most relevant agent sessions to physical LED slots using semantic priority and recency.
 - `QPomodoroConfiguration` provides configurable local focus/break timing and the standard duration presets.
-- `QCustomRule` models trigger/condition/scene/action rules for the Phase 2 Custom builder without coupling rules to LED rendering.
+- `QCustomModeDefinition` is the persisted declarative format for user-created modes, states, scenes, and safe button actions.
 - `Device/QDevice.swift` is the hardware-independent boundary used by the rest of the app.
 - `Device/VirtualQDevice.swift` implements that boundary and emits button input through `AsyncStream`.
 - `UI/VirtualQ` renders LED effects in SwiftUI and forwards physical-style button gestures to the device.

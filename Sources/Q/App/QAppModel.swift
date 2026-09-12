@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import OSLog
 import QCore
+import UniformTypeIdentifiers
 
 @MainActor
 final class QAppModel: ObservableObject {
@@ -19,6 +20,8 @@ final class QAppModel: ObservableObject {
     @Published private(set) var pomodoroConfiguration: QPomodoroConfiguration
     @Published private(set) var pomodoroRemainingSeconds: Int
     @Published private(set) var gestureSettings: QGestureSettings
+    @Published private(set) var customModes: [QCustomModeDefinition]
+    @Published private(set) var selectedCustomModeID: UUID?
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -26,17 +29,20 @@ final class QAppModel: ObservableObject {
         .meetings: "free",
         .pomodoro: "idle"
     ]
+    private var selectedCustomStateByMode: [UUID: UUID] = [:]
     private var pomodoroStateID = "idle"
     private var nextPomodoroPhaseID = "break"
     private var pomodoroPhaseTotalSeconds: Int
     private var pomodoroDeadline: Date?
     private var pomodoroTimerTask: Task<Void, Never>?
     private var virtualWindowController: VirtualQWindowController?
+    private var customModeEditorController: QCustomModeEditorWindowController?
     private var buttonEventTask: Task<Void, Never>?
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
     private let logger = Logger(subsystem: "app.q", category: "application")
     private static let gestureSettingsKey = "QGestureSettings"
+    private static let customModesKey = "QCustomModes"
 
     init(
         virtualDevice: VirtualQDevice = VirtualQDevice(),
@@ -44,7 +50,10 @@ final class QAppModel: ObservableObject {
     ) {
         self.virtualDevice = virtualDevice
         self.pomodoroConfiguration = pomodoroConfiguration
+        let savedCustomModes = Self.loadCustomModes()
         gestureSettings = Self.loadGestureSettings()
+        customModes = savedCustomModes
+        selectedCustomModeID = savedCustomModes.first?.id
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
         pomodoroPhaseTotalSeconds = pomodoroConfiguration.focusMinutes * 60
     }
@@ -69,7 +78,38 @@ final class QAppModel: ObservableObject {
     }
 
     var activePreset: QModePreset {
-        QModeCatalog.preset(for: selectedMode)
+        if selectedMode == .custom, let customMode = activeCustomMode {
+            return QModePreset(
+                id: .custom,
+                states: customMode.states.enumerated().map { index, state in
+                    QStatePreset(
+                        id: state.id.uuidString,
+                        name: state.name,
+                        state: .custom(state.id.uuidString),
+                        scene: state.scene,
+                        priority: index
+                    )
+                },
+                defaultStateID: customMode.defaultStateID.uuidString,
+                buttonMapping: QButtonMapping(),
+                supportsMultiSource: false
+            )
+        }
+        return QModeCatalog.preset(for: selectedMode)
+    }
+
+    var activeCustomMode: QCustomModeDefinition? {
+        guard let selectedCustomModeID else { return nil }
+        return customModes.first { $0.id == selectedCustomModeID }
+    }
+
+    var activeCustomState: QCustomStateDefinition? {
+        guard let mode = activeCustomMode else { return nil }
+        return mode.states.first { $0.id.uuidString == selectedStateID }
+    }
+
+    var currentModeName: String {
+        selectedMode == .custom ? (activeCustomMode?.name ?? "Custom") : selectedMode.name
     }
 
     var currentStatePreset: QStatePreset? {
@@ -118,7 +158,9 @@ final class QAppModel: ObservableObject {
             default: return "Start \(pomodoroConfiguration.focusMinutes)-minute timer"
             }
         case .builds: return "Open build"
-        case .custom: return "Run custom action"
+        case .custom:
+            guard let action = activeCustomState?.buttonMapping.singlePress else { return "Custom action" }
+            return action.kind == .inheritGlobal ? gestureSettings.singlePress.name : action.kind.name
         }
     }
 
@@ -148,6 +190,11 @@ final class QAppModel: ObservableObject {
     }
 
     func selectMode(_ mode: QMode) {
+        if mode == .custom {
+            guard let id = selectedCustomModeID ?? customModes.first?.id else { return }
+            selectCustomMode(id)
+            return
+        }
         guard QMode.primaryModes.contains(mode) else { return }
         selectedMode = mode
         let stateID = mode == .pomodoro
@@ -167,6 +214,11 @@ final class QAppModel: ObservableObject {
 
     func apply(_ preset: QStatePreset) {
         guard !selectedMode.isExternallyManaged else { return }
+        if selectedMode == .custom,
+           let stateID = UUID(uuidString: preset.id) {
+            selectCustomState(stateID)
+            return
+        }
         if selectedMode == .pomodoro {
             selectPomodoroState(preset.id)
             return
@@ -297,6 +349,18 @@ final class QAppModel: ObservableObject {
     }
 
     private func handleButtonEvent(_ event: QButtonEvent) {
+        let trigger: QButtonTrigger = switch event {
+        case .singlePress: .singlePress
+        case .doublePress: .doublePress
+        case .longPress: .longPress
+        }
+        if selectedMode == .custom,
+           let customAction = activeCustomState?.buttonMapping.action(for: trigger),
+           customAction.kind != .inheritGlobal {
+            performCustomAction(customAction)
+            showGestureStatus()
+            return
+        }
         let assignment: QGestureAction = switch event {
         case .singlePress: gestureSettings.singlePress
         case .doublePress: gestureSettings.doublePress
@@ -320,6 +384,15 @@ final class QAppModel: ObservableObject {
     private func performGestureAction(_ assignment: QGestureAction, event: QButtonEvent) {
         switch assignment {
         case .contextual:
+            if selectedMode == .custom, let state = activeCustomState {
+                let trigger: QButtonTrigger = switch event {
+                case .singlePress: .singlePress
+                case .doublePress: .doublePress
+                case .longPress: .longPress
+                }
+                performCustomAction(state.buttonMapping.action(for: trigger))
+                return
+            }
             guard let activeState = currentStatePreset else { return }
             let trigger: QButtonTrigger = switch event {
             case .singlePress: .singlePress
@@ -328,8 +401,7 @@ final class QAppModel: ObservableObject {
             }
             performLocalAction(activePreset.buttonMapping(for: activeState.state).action(for: trigger))
         case .nextMode:
-            guard let index = QMode.primaryModes.firstIndex(of: selectedMode) else { return }
-            selectMode(QMode.primaryModes[(index + 1) % QMode.primaryModes.count])
+            cycleToNextMode()
         case .nextState:
             cycleEditableState()
         case .showStatus, .none:
@@ -338,8 +410,12 @@ final class QAppModel: ObservableObject {
     }
 
     private func cycleEditableState() {
-        guard !selectedMode.isExternallyManaged,
-              selectedMode == .availability,
+        guard !selectedMode.isExternallyManaged else { return }
+        if selectedMode == .custom {
+            cycleCustomState(forward: true)
+            return
+        }
+        guard selectedMode == .availability,
               let index = activePreset.states.firstIndex(where: { $0.id == selectedStateID }) else { return }
         apply(activePreset.states[(index + 1) % activePreset.states.count])
     }
@@ -349,7 +425,7 @@ final class QAppModel: ObservableObject {
             name: .qShowGestureStatus,
             object: nil,
             userInfo: [
-                "mode": selectedMode.name,
+                "mode": currentModeName,
                 "state": currentStatePreset?.name ?? virtualDevice.currentScene.name
             ]
         )
@@ -361,6 +437,14 @@ final class QAppModel: ObservableObject {
             return QGestureSettings()
         }
         return settings
+    }
+
+    private static func loadCustomModes() -> [QCustomModeDefinition] {
+        guard let data = UserDefaults.standard.data(forKey: customModesKey),
+              let modes = try? JSONDecoder().decode([QCustomModeDefinition].self, from: data) else {
+            return []
+        }
+        return modes
     }
 
     private func performLocalAction(_ action: QButtonAction) {
@@ -394,6 +478,186 @@ final class QAppModel: ObservableObject {
         default:
             logger.debug("Button action awaits its integration target")
         }
+    }
+
+    func selectCustomMode(_ id: UUID) {
+        guard let mode = customModes.first(where: { $0.id == id }) else { return }
+        selectedMode = .custom
+        selectedCustomModeID = id
+        let stateID = selectedCustomStateByMode[id].flatMap { candidate in
+            mode.states.contains(where: { $0.id == candidate }) ? candidate : nil
+        } ?? mode.defaultStateID
+        selectCustomState(stateID)
+    }
+
+    func selectCustomState(_ id: UUID) {
+        guard let mode = activeCustomMode,
+              let state = mode.states.first(where: { $0.id == id }) else { return }
+        selectedStateID = state.id.uuidString
+        selectedStateByMode[.custom] = selectedStateID
+        selectedCustomStateByMode[mode.id] = state.id
+        apply(state.scene)
+    }
+
+    func saveCustomMode(_ definition: QCustomModeDefinition) {
+        if let index = customModes.firstIndex(where: { $0.id == definition.id }) {
+            customModes[index] = definition
+        } else {
+            customModes.append(definition)
+        }
+        persistCustomModes()
+        selectCustomMode(definition.id)
+    }
+
+    func deleteCustomMode(_ id: UUID) {
+        customModes.removeAll { $0.id == id }
+        selectedCustomStateByMode[id] = nil
+        persistCustomModes()
+        if selectedMode == .custom, selectedCustomModeID == id {
+            selectedCustomModeID = customModes.first?.id
+            if let replacement = selectedCustomModeID {
+                selectCustomMode(replacement)
+            } else {
+                selectMode(.aiAgents)
+            }
+        } else if selectedCustomModeID == id {
+            selectedCustomModeID = customModes.first?.id
+        }
+    }
+
+    func openCustomModeEditor(_ id: UUID? = nil) {
+        let definition = id.flatMap { candidate in
+            customModes.first { $0.id == candidate }
+        } ?? QCustomModeDefinition.draft()
+        customModeEditorController = QCustomModeEditorWindowController(
+            definition: definition,
+            isNew: id == nil,
+            onSave: { [weak self] mode in
+                self?.saveCustomMode(mode)
+                self?.customModeEditorController = nil
+            },
+            onDelete: { [weak self] modeID in
+                self?.deleteCustomMode(modeID)
+                self?.customModeEditorController = nil
+            },
+            onClose: { [weak self] in
+                self?.customModeEditorController = nil
+            }
+        )
+        customModeEditorController?.show()
+    }
+
+    func importCustomMode() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Custom Mode"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [UTType(filenameExtension: "qmode") ?? .data, .json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoded = try JSONDecoder().decode(QCustomModeDefinition.self, from: data)
+            let states = decoded.states.map { state in
+                QCustomStateDefinition(
+                    id: state.id,
+                    name: state.name,
+                    scene: QScene(name: state.scene.name, leds: state.scene.leds),
+                    buttonMapping: state.buttonMapping
+                )
+            }
+            let imported = QCustomModeDefinition(
+                id: customModes.contains(where: { $0.id == decoded.id }) ? UUID() : decoded.id,
+                name: decoded.name,
+                systemImage: decoded.systemImage,
+                isIncludedInCycle: decoded.isIncludedInCycle,
+                states: states,
+                defaultStateID: decoded.defaultStateID
+            )
+            saveCustomMode(imported)
+        } catch {
+            logger.error("Could not import custom mode: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+        }
+    }
+
+    private func persistCustomModes() {
+        guard let data = try? JSONEncoder().encode(customModes) else { return }
+        UserDefaults.standard.set(data, forKey: Self.customModesKey)
+    }
+
+    private enum ModeDestination: Equatable {
+        case builtIn(QMode)
+        case custom(UUID)
+    }
+
+    private func cycleToNextMode() {
+        let destinations = QMode.primaryModes.map(ModeDestination.builtIn)
+            + customModes.filter(\.isIncludedInCycle).map { ModeDestination.custom($0.id) }
+        guard !destinations.isEmpty else { return }
+        let current: ModeDestination
+        if selectedMode == .custom, let selectedCustomModeID {
+            current = .custom(selectedCustomModeID)
+        } else {
+            current = .builtIn(selectedMode)
+        }
+        let nextIndex = destinations.firstIndex(of: current).map { ($0 + 1) % destinations.count } ?? 0
+        switch destinations[nextIndex] {
+        case .builtIn(let mode): selectMode(mode)
+        case .custom(let id): selectCustomMode(id)
+        }
+    }
+
+    private func cycleCustomState(forward: Bool) {
+        guard let mode = activeCustomMode,
+              let index = mode.states.firstIndex(where: { $0.id.uuidString == selectedStateID }) else { return }
+        let offset = forward ? 1 : mode.states.count - 1
+        selectCustomState(mode.states[(index + offset) % mode.states.count].id)
+    }
+
+    private func performCustomAction(_ action: QCustomAction) {
+        switch action.kind {
+        case .inheritGlobal:
+            break
+        case .none:
+            break
+        case .nextState:
+            cycleCustomState(forward: true)
+        case .previousState:
+            cycleCustomState(forward: false)
+        case .turnOff:
+            apply(.idle)
+        case .openURL:
+            guard let url = URL(string: action.value),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+            NSWorkspace.shared.open(url)
+        case .openApplication:
+            openApplication(named: action.value)
+        case .runShortcut:
+            let name = action.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+            process.arguments = ["run", name]
+            do {
+                try process.run()
+            } catch {
+                logger.error("Could not run Shortcut: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func openApplication(named value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains(":") else { return }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed) {
+            NSWorkspace.shared.openApplication(at: url, configuration: .init())
+            return
+        }
+        let candidates = ["/Applications/\(trimmed).app", "/System/Applications/\(trimmed).app"]
+        guard let url = candidates.map(URL.init(fileURLWithPath:)).first(where: {
+            FileManager.default.fileExists(atPath: $0.path)
+        }) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
 
     func focusAgent(_ session: QAgentSession) {

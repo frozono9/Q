@@ -21,7 +21,7 @@ struct QMenuBarView: View {
             } else {
                 currentStatus
                 modeContext
-                if model.selectedMode == .availability {
+                if model.selectedMode == .availability || model.selectedMode == .custom {
                     stateSection
                 }
             }
@@ -37,17 +37,38 @@ struct QMenuBarView: View {
             QBrandMark(size: 24, lineWidth: 2.7)
 
             Menu {
-                Picker("Mode", selection: Binding(
-                    get: { model.selectedMode },
-                    set: { model.selectMode($0) }
-                )) {
-                    ForEach(QMode.primaryModes) { mode in
-                        Label(mode.name, systemImage: mode.systemImage).tag(mode)
+                ForEach(QMode.primaryModes) { mode in
+                    Button {
+                        model.selectMode(mode)
+                    } label: {
+                        Label(mode.name, systemImage: mode.systemImage)
                     }
                 }
-                .pickerStyle(.inline)
+                if !model.customModes.isEmpty {
+                    Divider()
+                    Section("Custom modes") {
+                        ForEach(model.customModes) { mode in
+                            Button {
+                                model.selectCustomMode(mode.id)
+                            } label: {
+                                Label(mode.name, systemImage: mode.systemImage)
+                            }
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    model.openCustomModeEditor()
+                } label: {
+                    Label("New Custom Mode…", systemImage: "plus")
+                }
+                Button {
+                    model.importCustomMode()
+                } label: {
+                    Label("Import Custom Mode…", systemImage: "square.and.arrow.down")
+                }
             } label: {
-                Text(model.selectedMode.name)
+                Text(model.currentModeName)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
             }
@@ -134,6 +155,21 @@ struct QMenuBarView: View {
 
         case .aiAgents where model.agentSlots.count > 1:
             agentContext
+
+        case .custom:
+            HStack {
+                Text("\(model.activePreset.states.count) custom states")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Edit Mode") {
+                    model.openCustomModeEditor(model.selectedCustomModeID)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
 
         default:
             EmptyView()
@@ -224,7 +260,7 @@ struct QMenuBarView: View {
 
     private var stateSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Set availability")
+            sectionLabel(model.selectedMode == .custom ? "Choose state" : "Set availability")
 
                 LazyVGrid(columns: stateColumns, spacing: 4) {
                     ForEach(model.activePreset.states) { preset in
@@ -283,6 +319,8 @@ struct QMenuBarView: View {
             }
         case .availability:
             return "Choose what Q signals to people around you."
+        case .custom:
+            return "Your lights and button actions."
         default:
             return ""
         }
@@ -342,6 +380,26 @@ struct QMenuBarView: View {
             gestureSetting("Single press", event: .singlePress, selection: model.gestureSettings.singlePress)
             gestureSetting("Double press", event: .doublePress, selection: model.gestureSettings.doublePress)
             gestureSetting("Long press", event: .longPress, selection: model.gestureSettings.longPress)
+
+            Divider()
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Custom modes").font(.callout.weight(.medium))
+                    Text(model.customModes.isEmpty ? "Create your own Q behavior." : "\(model.customModes.count) saved")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(model.customModes.isEmpty ? "Create…" : "Manage…") {
+                    model.openCustomModeEditor(model.selectedCustomModeID)
+                }
+            }
+
+            Button("Import .qmode…") {
+                model.importCustomMode()
+            }
+            .buttonStyle(.link)
 
             Text("Every button press shows the resulting mode and state for five seconds.")
                 .font(.caption2)
