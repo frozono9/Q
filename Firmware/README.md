@@ -31,7 +31,7 @@ electrical detail is isolated inside `serviceSoftwarePwm()`; all app and protoco
 values retain normal brightness semantics.
 
 The ESP32-C3 exposes six hardware LEDC channels, fewer than Q's nine color
-channels. The firmware therefore uses a roughly 98 Hz non-blocking software PWM
+channels. The firmware therefore uses a roughly 390 Hz non-blocking software PWM
 engine. Animation, USB parsing, and button handling continue without delays.
 
 `kChannelCalibration` contains conservative first-unit color correction. Once an

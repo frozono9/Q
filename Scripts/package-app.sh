@@ -18,8 +18,10 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 /usr/bin/ditto "$binary" "$bundle/Contents/MacOS/Q"
 /usr/bin/ditto "$project_dir/Config/Info.plist" "$bundle/Contents/Info.plist"
 /usr/bin/ditto "$project_dir/Resources/Brand/AppIcon.icns" "$bundle/Contents/Resources/AppIcon.icns"
+/usr/bin/ditto "$project_dir/Resources/Brand/AppIconAssets.car" "$bundle/Contents/Resources/Assets.car"
 /usr/bin/ditto "$project_dir/Resources/Brand/QLogo.png" "$bundle/Contents/Resources/QLogo.png"
 /usr/bin/ditto "$project_dir/Resources/Brand/QMenuBarTemplate.png" "$bundle/Contents/Resources/QMenuBarTemplate.png"
+/usr/bin/ditto "$project_dir/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/THIRD_PARTY_NOTICES.md"
 chmod +x "$bundle/Contents/MacOS/Q"
 
 if [ -n "${Q_VERSION:-}" ]; then

@@ -19,11 +19,15 @@ constexpr uint8_t kPins[kLedCount][kChannelCount] = {
 // than red/blue in the fitted LED. They are intentionally easy to tune after
 // seeing the first assembled unit.
 constexpr float kChannelCalibration[kChannelCount] = {0.55f, 0.20f, 1.0f};
-constexpr uint32_t kPwmStepMicros = 40;  // 256 steps -> approximately 98 Hz.
+// Keep the nine-channel software PWM comfortably above the visible flicker
+// range. 256 steps at 10 us produces a target refresh rate of about 391 Hz.
+constexpr uint32_t kPwmStepMicros = 10;
 constexpr uint32_t kRenderIntervalMs = 16;
 constexpr uint32_t kDebounceMs = 25;
 constexpr uint32_t kDoublePressMs = 260;
 constexpr uint32_t kLongPressMs = 650;
+constexpr uint32_t kConnectedPulsePeriodMs = 700;
+constexpr uint8_t kConnectedPulseCount = 3;
 
 enum Animation : uint8_t {
   Solid = 0,
@@ -55,6 +59,15 @@ struct LedState {
 LedState states[kLedCount];
 volatile uint8_t rendered[kLedCount][kChannelCount] = {};
 uint32_t sceneStartedAt = 0;
+
+enum ConnectionState : uint8_t {
+  AwaitingApp = 0,
+  ConfirmingApp = 1,
+  AppConnected = 2,
+};
+
+ConnectionState connectionState = AwaitingApp;
+uint32_t connectionStateStartedAt = 0;
 
 char serialLine[256];
 size_t serialLength = 0;
@@ -151,7 +164,48 @@ uint8_t correctedLevel(float component, float brightness, float intensity, uint8
   return static_cast<uint8_t>(roundf(255.0f * gammaCorrected * kChannelCalibration[channel]));
 }
 
+void updateRenderedLevels(uint32_t now);
+
+void renderConnectionStatus(uint32_t now) {
+  float red = 0.0f;
+  float green = 0.0f;
+  float intensity = 0.0f;
+
+  if (connectionState == AwaitingApp) {
+    const float elapsed = static_cast<float>(now - connectionStateStartedAt) / 1000.0f;
+    const float wave = (sinf(elapsed * TWO_PI / 1.35f - HALF_PI) + 1.0f) / 2.0f;
+    red = 1.0f;
+    intensity = 0.12f + 0.88f * wave;
+  } else {
+    const uint32_t elapsed = now - connectionStateStartedAt;
+    const uint32_t totalDuration = kConnectedPulsePeriodMs * kConnectedPulseCount;
+    if (elapsed >= totalDuration) {
+      connectionState = AppConnected;
+      sceneStartedAt = now;
+      updateRenderedLevels(now);
+      return;
+    }
+
+    const float cycle = static_cast<float>(elapsed % kConnectedPulsePeriodMs) /
+        static_cast<float>(kConnectedPulsePeriodMs);
+    const float envelope = sinf(cycle * PI);
+    green = 1.0f;
+    intensity = envelope * envelope;
+  }
+
+  for (uint8_t led = 0; led < kLedCount; ++led) {
+    rendered[led][0] = correctedLevel(red, 1.0f, intensity, 0);
+    rendered[led][1] = correctedLevel(green, 1.0f, intensity, 1);
+    rendered[led][2] = 0;
+  }
+}
+
 void updateRenderedLevels(uint32_t now) {
+  if (connectionState != AppConnected) {
+    renderConnectionStatus(now);
+    return;
+  }
+
   const float elapsed = static_cast<float>(now - sceneStartedAt) / 1000.0f;
   for (uint8_t led = 0; led < kLedCount; ++led) {
     const LedState &state = states[led];
@@ -218,6 +272,8 @@ void processSerialLine(char *line) {
 
   if (strcmp(command, "H") == 0) {
     Serial.println("Q|1");
+    connectionState = ConfirmingApp;
+    connectionStateStartedAt = millis();
     return;
   }
   if (strcmp(command, "S") != 0) return;
@@ -311,6 +367,7 @@ void setup() {
 
   Serial.begin(115200);
   sceneStartedAt = millis();
+  connectionStateStartedAt = sceneStartedAt;
   Serial.println("Q|1");
 }
 
@@ -326,4 +383,3 @@ void loop() {
   serviceSerial();
   serviceButton(now);
 }
-

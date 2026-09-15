@@ -24,6 +24,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var customModes: [QCustomModeDefinition]
     @Published private(set) var selectedCustomModeID: UUID?
     @Published private(set) var isPhysicalDeviceConnected = false
+    @Published private(set) var deviceBrightness: Double
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -37,17 +38,19 @@ final class QAppModel: ObservableObject {
     private var pomodoroPhaseTotalSeconds: Int
     private var pomodoroDeadline: Date?
     private var pomodoroTimerTask: Task<Void, Never>?
-    private var virtualWindowController: VirtualQWindowController?
     private var customModeEditorController: QCustomModeEditorWindowController?
     private var buttonEventTask: Task<Void, Never>?
     private var physicalButtonEventTask: Task<Void, Never>?
     private var physicalConnectionTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
+    private var unscaledScene: QScene?
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
     private let logger = Logger(subsystem: "app.q", category: "application")
     private static let gestureSettingsKey = "QGestureSettings"
     private static let customModesKey = "QCustomModes"
+    private static let deviceBrightnessKey = "QDeviceBrightness"
+    private static let presetReferenceBrightness = 0.85
 
     init(
         virtualDevice: VirtualQDevice? = nil,
@@ -61,6 +64,7 @@ final class QAppModel: ObservableObject {
         gestureSettings = Self.loadGestureSettings()
         customModes = savedCustomModes
         selectedCustomModeID = savedCustomModes.first?.id
+        deviceBrightness = Self.loadDeviceBrightness()
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
         pomodoroPhaseTotalSeconds = pomodoroConfiguration.focusMinutes * 60
 
@@ -82,14 +86,9 @@ final class QAppModel: ObservableObject {
             startPhysicalDeviceConnection()
             startCodexIntegration()
             startDiscordIntegration()
-            showVirtualQ()
         } catch {
             logger.error("Could not connect Virtual Q: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    var isVirtualQVisible: Bool {
-        virtualWindowController?.isVisible == true
     }
 
     var activePreset: QModePreset {
@@ -179,22 +178,22 @@ final class QAppModel: ObservableObject {
         }
     }
 
-    var connectionLabel: String {
+    var integrationConnectionLabel: String? {
         switch selectedMode {
         case .aiAgents:
             return isCodexIntegrationAvailable ? "Codex live" : "Codex offline"
         case .meetings:
             return isDiscordIntegrationAvailable ? "Discord live" : "Discord offline"
         default:
-            return isPhysicalDeviceConnected ? "Q connected" : "Preview"
+            return nil
         }
     }
 
-    var isConnectionActive: Bool {
+    var isIntegrationConnectionActive: Bool {
         switch selectedMode {
         case .aiAgents: return isCodexIntegrationAvailable
         case .meetings: return isDiscordIntegrationAvailable
-        default: return isPhysicalDeviceConnected
+        default: return false
         }
     }
 
@@ -424,6 +423,14 @@ final class QAppModel: ObservableObject {
         }
     }
 
+    func setDeviceBrightness(_ brightness: Double) {
+        deviceBrightness = min(max(brightness, 0.1), 1)
+        UserDefaults.standard.set(deviceBrightness, forKey: Self.deviceBrightnessKey)
+        if let unscaledScene {
+            apply(unscaledScene)
+        }
+    }
+
     private func performGestureAction(_ assignment: QGestureAction, event: QButtonEvent) {
         switch assignment {
         case .contextual:
@@ -480,6 +487,13 @@ final class QAppModel: ObservableObject {
             return QGestureSettings()
         }
         return settings
+    }
+
+    private static func loadDeviceBrightness() -> Double {
+        guard UserDefaults.standard.object(forKey: deviceBrightnessKey) != nil else {
+            return presetReferenceBrightness
+        }
+        return min(max(UserDefaults.standard.double(forKey: deviceBrightnessKey), 0.1), 1)
     }
 
     private static func loadCustomModes() -> [QCustomModeDefinition] {
@@ -824,37 +838,33 @@ final class QAppModel: ObservableObject {
         )
     }
 
-    func toggleVirtualQ() {
-        if isVirtualQVisible {
-            virtualWindowController?.hide()
-        } else {
-            showVirtualQ()
-        }
-        objectWillChange.send()
-    }
-
-    func showVirtualQ() {
-        if virtualWindowController == nil {
-            virtualWindowController = VirtualQWindowController(device: virtualDevice)
-        }
-        virtualWindowController?.show()
-        objectWillChange.send()
-    }
-
     func apply(_ scene: QScene) {
+        unscaledScene = scene
+        let renderedScene = sceneWithDeviceBrightness(scene)
         Task {
             do {
-                try await virtualDevice.apply(scene: scene)
+                try await virtualDevice.apply(scene: renderedScene)
             } catch {
                 logger.error("Could not apply scene: \(error.localizedDescription, privacy: .public)")
             }
             guard physicalDevice.isConnected else { return }
             do {
-                try await physicalDevice.apply(scene: scene)
+                try await physicalDevice.apply(scene: renderedScene)
             } catch {
                 logger.error("Could not update physical Q: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    private func sceneWithDeviceBrightness(_ scene: QScene) -> QScene {
+        let gain = deviceBrightness / Self.presetReferenceBrightness
+        var adjusted = scene
+        adjusted.leds = scene.leds.map { led in
+            var adjustedLED = led
+            adjustedLED.brightness = min(led.brightness * gain, 1)
+            return adjustedLED
+        }
+        return adjusted
     }
 
     func quit() {

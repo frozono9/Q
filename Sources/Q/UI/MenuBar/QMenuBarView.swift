@@ -78,17 +78,38 @@ struct QMenuBarView: View {
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(model.isConnectionActive ? Color.green : Color.secondary)
-                    .frame(width: 7, height: 7)
-                Text(model.connectionLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            connectionIndicators
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+    }
+
+    private var connectionIndicators: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            connectionIndicator(
+                label: model.isPhysicalDeviceConnected ? "Q connected" : "No Q",
+                isActive: model.isPhysicalDeviceConnected
+            )
+
+            if let integrationLabel = model.integrationConnectionLabel {
+                connectionIndicator(
+                    label: integrationLabel,
+                    isActive: model.isIntegrationConnectionActive
+                )
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func connectionIndicator(label: String, isActive: Bool) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isActive ? Color.green : Color.secondary)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var currentStatus: some View {
@@ -335,19 +356,6 @@ struct QMenuBarView: View {
             }
             .buttonStyle(.plain)
 
-            if !showingSettings {
-            Button {
-                model.toggleVirtualQ()
-            } label: {
-                Label(
-                    model.isVirtualQVisible ? "Hide preview" : "Show preview",
-                    systemImage: model.isVirtualQVisible ? "eye.slash" : "eye"
-                )
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("q", modifiers: [.command, .shift])
-            }
-
             Spacer()
 
             Button {
@@ -369,6 +377,28 @@ struct QMenuBarView: View {
 
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Device brightness")
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    Text("\(Int((model.deviceBrightness * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { model.deviceBrightness },
+                        set: { model.setDeviceBrightness($0) }
+                    ),
+                    in: 0.1...1,
+                    step: 0.05
+                )
+                .accessibilityLabel("Device brightness")
+            }
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 3) {
                 Text("Button presses")
                     .font(.title3.weight(.semibold))
