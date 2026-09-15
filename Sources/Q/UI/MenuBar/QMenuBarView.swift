@@ -28,12 +28,10 @@ struct QMenuBarView: View {
             Divider()
             footer
         }
-        // NSPopover otherwise recomputes its content size from whichever branch
-        // is currently visible. A ScrollView has a tiny intrinsic height, so the
-        // first transition into Settings could collapse the popover until it was
-        // closed and opened again. Keep the menu-bar surface at its intended,
-        // stable size across every in-place navigation transition.
-        .frame(width: 320, height: 470, alignment: .top)
+        // The normal surface should hug its content. Settings needs an explicit
+        // height because its ScrollView otherwise reports a tiny intrinsic size
+        // during the first in-place transition.
+        .frame(width: 320, height: showingSettings ? 470 : nil, alignment: .top)
         .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
     }
 

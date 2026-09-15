@@ -8,7 +8,8 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "Q", targets: ["Q"])
+        .executable(name: "Q", targets: ["Q"]),
+        .executable(name: "QDeviceWatcher", targets: ["QDeviceWatcher"])
     ],
     targets: [
         .target(
@@ -21,6 +22,10 @@ let package = Package(
             dependencies: ["QCore"],
             path: "Sources/Q",
             sources: ["App", "Integrations", "UI"]
+        ),
+        .executableTarget(
+            name: "QDeviceWatcher",
+            path: "Sources/QDeviceWatcher"
         ),
         .testTarget(
             name: "QTests",

@@ -1,6 +1,9 @@
 # Q
 
-Q connects automatically to local Codex/ChatGPT agent sessions. It watches the
+For the complete product, hardware, architecture, protocol, contributor, and
+extension guide, see [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
+
+Q connects automatically to local Codex agent sessions. It watches the
 live local rollout event stream, maps agent activity to Q's semantic states, and
 opens the exact Codex thread through its native `codex://threads/<id>` deep link.
 No separate API key or cloud relay is required.
@@ -25,7 +28,8 @@ sh Scripts/install-app.sh
 
 Q is installed at `/Applications/Q.app`, appears in Spotlight and Finder with its
 own icon, and keeps its Q control in the macOS menu bar without adding a Dock
-icon. The installed app registers itself to reopen automatically at login.
+icon. The installed app registers itself to reopen automatically at login and
+registers a lightweight LaunchAgent that can launch Q when a module is connected.
 Opening Q again from Spotlight or Finder reveals its popover when it is already
 running.
 
@@ -59,8 +63,9 @@ Q_NOTARY_PROFILE=Q-notary sh Scripts/release-dmg.sh
 The finished download appears under `Dist`. Without `Q_NOTARY_PROFILE`, the same
 command creates a signed local test DMG but intentionally skips notarization.
 
-The menu can hide or show the virtual device. The MVP uses one contextual button
-press; the current action is always shown in the popover.
+The app keeps a virtual device model internally for shared behavior and testing,
+but the product UI is focused on the connected physical device. The current
+contextual button action is always shown in the popover.
 
 General Settings configures the physical button's single, double, and long press
 independently. Factory defaults use the contextual action for single press,
@@ -91,7 +96,7 @@ The Swift package can also be opened directly in Xcode when the full Xcode appli
 ## Architecture
 
 - `QCore` contains transport-safe `Codable` semantic state and the device layer, independently importable by future app and CLI targets.
-- `QModeCatalog` defines the four primary MVP modes, their semantic states, scenes, priorities, and safe default button mappings.
+- `QModeCatalog` defines the five primary MVP modes, their semantic states, scenes, priorities, and safe default button mappings.
 - `QAgentSlotResolver` assigns the three most relevant agent sessions to physical LED slots using semantic priority and recency.
 - `QPomodoroConfiguration` provides configurable local focus/break timing and the standard duration presets.
 - `QCustomModeDefinition` is the persisted declarative format for user-created modes, states, scenes, and safe button actions.

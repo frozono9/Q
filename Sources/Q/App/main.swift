@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import OSLog
 import ServiceManagement
 import SwiftUI
@@ -20,6 +21,7 @@ struct QApp: App {
 @MainActor
 final class QAppDelegate: NSObject, NSApplicationDelegate {
     private static let statusItemAutosaveName = "QStatusItem"
+    private static let deviceWatcherPlistName = "app.q.device-watcher.plist"
     private static let statusItemPositionKey =
         "NSStatusItem Preferred Position \(statusItemAutosaveName)"
 
@@ -28,6 +30,7 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     private let gesturePopover = NSPopover()
     private var gestureStatusObserver: NSObjectProtocol?
     private var gestureDismissTask: Task<Void, Never>?
+    private var deviceConnectionCancellable: AnyCancellable?
     private let logger = Logger(subsystem: "app.q", category: "status-item")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -36,7 +39,9 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         configurePopover()
         configureGesturePopover()
+        configureDeviceConnectionPresentation()
         registerLaunchAtLoginIfInstalled()
+        registerDeviceWatcherIfInstalled()
 
         Task {
             await QAppModel.shared.start()
@@ -135,6 +140,18 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func configureDeviceConnectionPresentation() {
+        deviceConnectionCancellable = QAppModel.shared.$isPhysicalDeviceConnected
+            .removeDuplicates()
+            .dropFirst()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                logger.notice("Physical Q connected; revealing controls")
+                showPopover()
+            }
+    }
+
     private func showGesturePopover(mode: String, state: String) {
         guard let button = statusItem?.button else { return }
         gestureDismissTask?.cancel()
@@ -163,7 +180,7 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         let service = SMAppService.mainApp
         switch service.status {
         case .notRegistered, .notFound:
-            register(service)
+            register(service, name: "Q launch at login")
         case .enabled:
             logger.debug("Q is enabled at login")
         case .requiresApproval:
@@ -173,12 +190,32 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func register(_ service: SMAppService) {
+    private func registerDeviceWatcherIfInstalled() {
+        let installedBundle = URL(fileURLWithPath: "/Applications/Q.app").standardizedFileURL
+        guard Bundle.main.bundleURL.standardizedFileURL == installedBundle else {
+            logger.debug("Skipping device watcher registration for development build")
+            return
+        }
+
+        let service = SMAppService.agent(plistName: Self.deviceWatcherPlistName)
+        switch service.status {
+        case .notRegistered, .notFound:
+            register(service, name: "Q device watcher")
+        case .enabled:
+            logger.debug("Q device watcher is enabled")
+        case .requiresApproval:
+            logger.notice("Q device watcher is awaiting approval in System Settings")
+        @unknown default:
+            logger.error("Unknown Q device watcher status")
+        }
+    }
+
+    private func register(_ service: SMAppService, name: String) {
         do {
             try service.register()
-            logger.notice("Registered Q to launch at login; status=\(service.status.rawValue)")
+            logger.notice("Registered \(name, privacy: .public); status=\(service.status.rawValue)")
         } catch {
-            logger.error("Could not register Q to launch at login: \(error.localizedDescription, privacy: .public)")
+            logger.error("Could not register \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -200,6 +237,9 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let button = statusItem?.button, !popover.isShown else { return }
+        if gesturePopover.isShown {
+            gesturePopover.performClose(nil)
+        }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()

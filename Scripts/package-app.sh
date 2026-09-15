@@ -4,25 +4,32 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 configuration=${1:-debug}
 binary=${Q_BUILD_BINARY:-"$project_dir/.build/arm64-apple-macosx/$configuration/Q"}
+watcher_binary=${Q_WATCHER_BINARY:-"$(dirname "$binary")/QDeviceWatcher"}
 bundle="$project_dir/.build/Q.app"
 
 if [ ! -x "$binary" ]; then
     echo "Missing Q executable at $binary. Build Q first." >&2
     exit 1
 fi
+if [ ! -x "$watcher_binary" ]; then
+    echo "Missing QDeviceWatcher executable at $watcher_binary. Build all Q products first." >&2
+    exit 1
+fi
 
 if [ -d "$bundle" ]; then
     rm -rf "$bundle"
 fi
-mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents/Library/LaunchAgents"
 /usr/bin/ditto "$binary" "$bundle/Contents/MacOS/Q"
+/usr/bin/ditto "$watcher_binary" "$bundle/Contents/MacOS/QDeviceWatcher"
 /usr/bin/ditto "$project_dir/Config/Info.plist" "$bundle/Contents/Info.plist"
+/usr/bin/ditto "$project_dir/Config/app.q.device-watcher.plist" "$bundle/Contents/Library/LaunchAgents/app.q.device-watcher.plist"
 /usr/bin/ditto "$project_dir/Resources/Brand/AppIcon.icns" "$bundle/Contents/Resources/AppIcon.icns"
 /usr/bin/ditto "$project_dir/Resources/Brand/AppIconAssets.car" "$bundle/Contents/Resources/Assets.car"
 /usr/bin/ditto "$project_dir/Resources/Brand/QLogo.png" "$bundle/Contents/Resources/QLogo.png"
 /usr/bin/ditto "$project_dir/Resources/Brand/QMenuBarTemplate.png" "$bundle/Contents/Resources/QMenuBarTemplate.png"
 /usr/bin/ditto "$project_dir/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/THIRD_PARTY_NOTICES.md"
-chmod +x "$bundle/Contents/MacOS/Q"
+chmod +x "$bundle/Contents/MacOS/Q" "$bundle/Contents/MacOS/QDeviceWatcher"
 
 if [ -n "${Q_VERSION:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $Q_VERSION" "$bundle/Contents/Info.plist"
