@@ -30,7 +30,13 @@ constexpr uint32_t kDoublePressMs = 260;
 constexpr uint32_t kLongPressMs = 650;
 constexpr uint32_t kConnectedPulsePeriodMs = 700;
 constexpr uint8_t kConnectedPulseCount = 3;
-constexpr uint32_t kAppHeartbeatTimeoutMs = 4000;
+// A missed heartbeat starts an invisible challenge/response grace period. Q
+// keeps showing the active scene while it asks the app to prove it is alive,
+// and only shows its red waiting state after the entire grace period expires.
+constexpr uint32_t kAppHeartbeatTimeoutMs = 8000;
+constexpr uint32_t kAppChallengeIntervalMs = 2000;
+constexpr uint32_t kAppChallengeGraceMs = 30000;
+constexpr char kFirmwareVersion[] = "0.2.1";
 
 enum Animation : uint8_t {
   Solid = 0,
@@ -74,6 +80,9 @@ enum ConnectionState : uint8_t {
 ConnectionState connectionState = AwaitingApp;
 uint32_t connectionStateStartedAt = 0;
 uint32_t lastAppContactAt = 0;
+bool awaitingHeartbeatResponse = false;
+uint32_t heartbeatChallengeStartedAt = 0;
+uint32_t lastHeartbeatChallengeAt = 0;
 
 char serialLine[256];
 size_t serialLength = 0;
@@ -288,23 +297,40 @@ bool parseLed(char *text, LedState &state) {
   return true;
 }
 
+void sendDeviceInfo() {
+  const uint64_t chipID = ESP.getEfuseMac();
+  Serial.printf(
+      "Q|1|%s|Q-%04X%08X\n",
+      kFirmwareVersion,
+      static_cast<uint16_t>(chipID >> 32),
+      static_cast<uint32_t>(chipID));
+}
+
+void noteAppContact(uint32_t now) {
+  lastAppContactAt = now;
+  awaitingHeartbeatResponse = false;
+}
+
 void processSerialLine(char *line) {
   char *save = nullptr;
   char *command = strtok_r(line, "|", &save);
   if (!command) return;
 
   if (strcmp(command, "H") == 0) {
-    Serial.println("Q|1");
+    sendDeviceInfo();
     connectionState = ConfirmingApp;
     connectionStateStartedAt = millis();
-    lastAppContactAt = connectionStateStartedAt;
+    noteAppContact(connectionStateStartedAt);
     return;
   }
   if (strcmp(command, "P") == 0) {
-    lastAppContactAt = millis();
+    noteAppContact(millis());
     if (connectionState == AwaitingApp) {
-      connectionState = ConfirmingApp;
-      connectionStateStartedAt = lastAppContactAt;
+      // A late heartbeat means the existing app session was delayed, not newly
+      // connected. Restore its scene silently; only a fresh H handshake earns
+      // the three-pulse green connection confirmation.
+      connectionState = AppConnected;
+      sceneStartedAt = lastAppContactAt;
     }
     return;
   }
@@ -320,7 +346,7 @@ void processSerialLine(char *line) {
   }
   memcpy(states, pending, sizeof(states));
   sceneStartedAt = millis();
-  lastAppContactAt = sceneStartedAt;
+  noteAppContact(sceneStartedAt);
   Serial.println("A|scene");
 }
 
@@ -388,10 +414,28 @@ void serviceButton(uint32_t now) {
 
 void serviceAppConnection(uint32_t now) {
   if (connectionState == AwaitingApp) return;
-  if (static_cast<uint32_t>(now - lastAppContactAt) <= kAppHeartbeatTimeoutMs) return;
+
+  if (!awaitingHeartbeatResponse) {
+    if (static_cast<uint32_t>(now - lastAppContactAt) <= kAppHeartbeatTimeoutMs) return;
+
+    awaitingHeartbeatResponse = true;
+    heartbeatChallengeStartedAt = now;
+    lastHeartbeatChallengeAt = now;
+    Serial.println("C|heartbeat");
+    return;
+  }
+
+  if (static_cast<uint32_t>(now - heartbeatChallengeStartedAt) <= kAppChallengeGraceMs) {
+    if (static_cast<uint32_t>(now - lastHeartbeatChallengeAt) >= kAppChallengeIntervalMs) {
+      lastHeartbeatChallengeAt = now;
+      Serial.println("C|heartbeat");
+    }
+    return;
+  }
 
   connectionState = AwaitingApp;
   connectionStateStartedAt = now;
+  awaitingHeartbeatResponse = false;
 }
 
 }  // namespace
@@ -414,7 +458,7 @@ void setup() {
   Serial.begin(115200);
   sceneStartedAt = millis();
   connectionStateStartedAt = sceneStartedAt;
-  Serial.println("Q|1");
+  sendDeviceInfo();
 }
 
 void loop() {

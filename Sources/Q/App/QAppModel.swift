@@ -24,7 +24,13 @@ final class QAppModel: ObservableObject {
     @Published private(set) var customModes: [QCustomModeDefinition]
     @Published private(set) var selectedCustomModeID: UUID?
     @Published private(set) var isPhysicalDeviceConnected = false
+    @Published private(set) var physicalFirmwareVersion: String?
+    @Published private(set) var physicalDeviceIdentifier: String?
+    @Published private(set) var physicalPortPath: String?
     @Published private(set) var deviceBrightness: Double
+    @Published private(set) var isRunningLightTest = false
+    @Published private(set) var isAwaitingButtonTest = false
+    @Published private(set) var buttonTestResult: String?
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -43,6 +49,8 @@ final class QAppModel: ObservableObject {
     private var buttonEventTask: Task<Void, Never>?
     private var physicalButtonEventTask: Task<Void, Never>?
     private var physicalConnectionTask: Task<Void, Never>?
+    private var lightTestTask: Task<Void, Never>?
+    private var buttonTestTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private var unscaledScene: QScene?
     private let codexIntegration = CodexLocalIntegration()
@@ -74,6 +82,15 @@ final class QAppModel: ObservableObject {
             .sink { [weak self] connected in
                 self?.isPhysicalDeviceConnected = connected
             }
+            .store(in: &cancellables)
+        self.physicalDevice.$firmwareVersion
+            .sink { [weak self] in self?.physicalFirmwareVersion = $0 }
+            .store(in: &cancellables)
+        self.physicalDevice.$deviceIdentifier
+            .sink { [weak self] in self?.physicalDeviceIdentifier = $0 }
+            .store(in: &cancellables)
+        self.physicalDevice.$portPath
+            .sink { [weak self] in self?.physicalPortPath = $0 }
             .store(in: &cancellables)
     }
 
@@ -333,6 +350,10 @@ final class QAppModel: ObservableObject {
         physicalButtonEventTask = Task { [weak self] in
             guard let self else { return }
             for await event in physicalDevice.buttonEvents {
+                if isAwaitingButtonTest {
+                    completeButtonTest(event)
+                    continue
+                }
                 handleButtonEvent(event)
             }
         }
@@ -430,6 +451,63 @@ final class QAppModel: ObservableObject {
         UserDefaults.standard.set(deviceBrightness, forKey: Self.deviceBrightnessKey)
         if let unscaledScene {
             apply(unscaledScene)
+        }
+    }
+
+    func runLightTest() {
+        guard physicalDevice.isConnected else { return }
+        lightTestTask?.cancel()
+        let sceneToRestore = physicalDevice.currentScene
+        isRunningLightTest = true
+        lightTestTask = Task { [weak self] in
+            guard let self else { return }
+            let colors: [(String, QColor)] = [
+                ("Red", .red), ("Green", .green), ("Blue", .blue), ("White", .white)
+            ]
+            for (name, color) in colors {
+                guard !Task.isCancelled, physicalDevice.isConnected else { break }
+                let scene = QScene(
+                    name: "Test \(name)",
+                    leds: Array(
+                        repeating: QLEDState(color: color, brightness: 0.75),
+                        count: QScene.ledCount
+                    )
+                )
+                try? await physicalDevice.apply(scene: sceneWithDeviceBrightness(scene))
+                try? await Task.sleep(for: .milliseconds(650))
+            }
+            if physicalDevice.isConnected {
+                try? await physicalDevice.apply(scene: sceneToRestore)
+            }
+            isRunningLightTest = false
+        }
+    }
+
+    func beginButtonTest() {
+        guard physicalDevice.isConnected else { return }
+        buttonTestTask?.cancel()
+        buttonTestResult = nil
+        isAwaitingButtonTest = true
+        buttonTestTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
+            guard let self, isAwaitingButtonTest else { return }
+            isAwaitingButtonTest = false
+            buttonTestResult = "No press detected"
+        }
+    }
+
+    private func completeButtonTest(_ event: QButtonEvent) {
+        buttonTestTask?.cancel()
+        buttonTestTask = nil
+        isAwaitingButtonTest = false
+        buttonTestResult = switch event {
+        case .singlePress: "Single press detected"
+        case .doublePress: "Double press detected"
+        case .longPress: "Long press detected"
         }
     }
 

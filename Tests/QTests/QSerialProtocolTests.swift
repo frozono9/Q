@@ -4,9 +4,25 @@ import Testing
 
 @Suite("Q USB serial protocol")
 struct QSerialProtocolTests {
+    @Test func decodesCurrentAndLegacyDeviceIdentity() throws {
+        let current = try #require(QSerialProtocol.deviceInfo(from: "Q|1|0.2.0|Q-E8F60A143570\r\n"))
+        #expect(current.protocolVersion == 1)
+        #expect(current.firmwareVersion == "0.2.0")
+        #expect(current.deviceIdentifier == "Q-E8F60A143570")
+
+        let legacy = try #require(QSerialProtocol.deviceInfo(from: "Q|1"))
+        #expect(legacy.firmwareVersion == nil)
+        #expect(legacy.deviceIdentifier == nil)
+    }
+
     @Test func encodesHeartbeatWithProtocolVersion() throws {
         let command = try #require(String(data: QSerialProtocol.heartbeatCommand, encoding: .utf8))
         #expect(command == "P|1\n")
+    }
+
+    @Test func recognizesHeartbeatChallenge() {
+        #expect(QSerialProtocol.isHeartbeatChallenge("C|heartbeat\r\n"))
+        #expect(!QSerialProtocol.isHeartbeatChallenge("A|scene"))
     }
 
     @Test func encodesExactlyThreeLEDsWithNormalBrightnessSemantics() throws {

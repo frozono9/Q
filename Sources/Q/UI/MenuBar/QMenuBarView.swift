@@ -28,7 +28,12 @@ struct QMenuBarView: View {
             Divider()
             footer
         }
-        .frame(width: 320)
+        // NSPopover otherwise recomputes its content size from whichever branch
+        // is currently visible. A ScrollView has a tiny intrinsic height, so the
+        // first transition into Settings could collapse the popover until it was
+        // closed and opened again. Keep the menu-bar surface at its intended,
+        // stable size across every in-place navigation transition.
+        .frame(width: 320, height: 470, alignment: .top)
         .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
     }
 
@@ -378,68 +383,136 @@ struct QMenuBarView: View {
     }
 
     private var generalSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Text("Device brightness")
-                        .font(.callout.weight(.medium))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Device")
+                            .font(.title3.weight(.semibold))
+                        Text(model.isPhysicalDeviceConnected ? "Your physical Q is ready." : "Connect Q over USB-C.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text("\(Int((model.deviceBrightness * 100).rounded()))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(model.isPhysicalDeviceConnected ? Color.green : Color.secondary)
+                            .frame(width: 7, height: 7)
+                        Text(model.isPhysicalDeviceConnected ? "Connected" : "Not connected")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Slider(
-                    value: Binding(
-                        get: { model.deviceBrightness },
-                        set: { model.setDeviceBrightness($0) }
-                    ),
-                    in: 0.1...1,
-                    step: 0.05
-                )
-                .accessibilityLabel("Device brightness")
-            }
 
-            Divider()
+                if model.isPhysicalDeviceConnected {
+                    VStack(spacing: 7) {
+                        deviceDetailRow("Device", value: model.physicalDeviceIdentifier ?? "Q")
+                        deviceDetailRow("Firmware", value: model.physicalFirmwareVersion ?? "Legacy")
+                        deviceDetailRow(
+                            "Port",
+                            value: model.physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—"
+                        )
+                    }
+                }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Button presses")
-                    .font(.title3.weight(.semibold))
-                Text("Choose what the physical Q button does for each gesture.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Brightness")
+                            .font(.callout.weight(.medium))
+                        Spacer()
+                        Text("\(Int((model.deviceBrightness * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { model.deviceBrightness },
+                            set: { model.setDeviceBrightness($0) }
+                        ),
+                        in: 0.1...1,
+                        step: 0.05
+                    )
+                    .accessibilityLabel("Device brightness")
+                }
 
-            gestureSetting("Single press", event: .singlePress, selection: model.gestureSettings.singlePress)
-            gestureSetting("Double press", event: .doublePress, selection: model.gestureSettings.doublePress)
-            gestureSetting("Long press", event: .longPress, selection: model.gestureSettings.longPress)
+                HStack(spacing: 10) {
+                    Button(model.isRunningLightTest ? "Testing…" : "Test lights") {
+                        model.runLightTest()
+                    }
+                    .disabled(!model.isPhysicalDeviceConnected || model.isRunningLightTest)
 
-            Divider()
+                    Button(model.isAwaitingButtonTest ? "Press Q now…" : "Test button") {
+                        model.beginButtonTest()
+                    }
+                    .disabled(!model.isPhysicalDeviceConnected || model.isAwaitingButtonTest)
+                }
+                .buttonStyle(.bordered)
 
-            HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Custom modes").font(.callout.weight(.medium))
-                    Text(model.customModes.isEmpty ? "Create your own Q behavior." : "\(model.customModes.count) saved")
-                        .font(.caption2)
+                    if let result = model.buttonTestResult {
+                        Label(result, systemImage: result == "No press detected" ? "exclamationmark.circle" : "checkmark.circle.fill")
+                            .foregroundStyle(result == "No press detected" ? Color.secondary : Color.green)
+                    } else if model.isAwaitingButtonTest {
+                        Text("Single, double, or long-press the physical button.")
+                    }
+                }
+                .font(.caption2)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Button presses")
+                        .font(.title3.weight(.semibold))
+                    Text("Choose what the physical Q button does for each gesture.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button(model.customModes.isEmpty ? "Create…" : "Manage…") {
-                    model.openCustomModeEditor(model.selectedCustomModeID)
+
+                gestureSetting("Single press", event: .singlePress, selection: model.gestureSettings.singlePress)
+                gestureSetting("Double press", event: .doublePress, selection: model.gestureSettings.doublePress)
+                gestureSetting("Long press", event: .longPress, selection: model.gestureSettings.longPress)
+
+                Divider()
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Custom modes").font(.callout.weight(.medium))
+                        Text(model.customModes.isEmpty ? "Create your own Q behavior." : "\(model.customModes.count) saved")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(model.customModes.isEmpty ? "Create…" : "Manage…") {
+                        model.openCustomModeEditor(model.selectedCustomModeID)
+                    }
                 }
-            }
 
-            Button("Import .qmode…") {
-                model.importCustomMode()
-            }
-            .buttonStyle(.link)
+                Button("Import .qmode…") {
+                    model.importCustomMode()
+                }
+                .buttonStyle(.link)
 
-            Text("Every button press shows the resulting mode and state for five seconds.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("Every button press shows the resulting mode and state for five seconds.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
+    }
+
+    private func deviceDetailRow(_ label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .font(.caption)
     }
 
     private func gestureSetting(

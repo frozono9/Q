@@ -2,6 +2,31 @@ import Combine
 import Foundation
 import OSLog
 
+private final class QSerialWriter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: FileHandle?
+
+    func attach(_ handle: FileHandle) {
+        lock.lock()
+        self.handle = handle
+        lock.unlock()
+    }
+
+    func write(_ data: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let handle else { throw QDeviceError.notConnected }
+        try handle.write(contentsOf: data)
+    }
+
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        try? handle?.close()
+        handle = nil
+    }
+}
+
 @MainActor
 public final class SerialQDevice: ObservableObject, QDevice {
     public let id = "physical-q"
@@ -10,12 +35,16 @@ public final class SerialQDevice: ObservableObject, QDevice {
     @Published public private(set) var isConnected = false
     @Published public private(set) var currentScene: QScene = .idle
     @Published public private(set) var portPath: String?
+    @Published public private(set) var firmwareVersion: String?
+    @Published public private(set) var deviceIdentifier: String?
 
     public let buttonEvents: AsyncStream<QButtonEvent>
 
     private let buttonContinuation: AsyncStream<QButtonEvent>.Continuation
     private var handle: FileHandle?
-    private var heartbeatTask: Task<Void, Never>?
+    private var heartbeatTimer: DispatchSourceTimer?
+    private let heartbeatQueue = DispatchQueue(label: "app.q.serial-heartbeat", qos: .utility)
+    private let serialWriter = QSerialWriter()
     private var receiveBuffer = Data()
     private var receivedReady = false
     private let logger = Logger(subsystem: "app.q", category: "serial-device")
@@ -27,9 +56,9 @@ public final class SerialQDevice: ObservableObject, QDevice {
     }
 
     deinit {
-        heartbeatTask?.cancel()
+        heartbeatTimer?.cancel()
         handle?.readabilityHandler = nil
-        try? handle?.close()
+        serialWriter.close()
         buttonContinuation.finish()
     }
 
@@ -53,6 +82,7 @@ public final class SerialQDevice: ObservableObject, QDevice {
                     }
                 }
                 handle = opened
+                serialWriter.attach(opened)
                 portPath = path
 
                 // USB-UART bridges commonly reset the ESP32-C3 when opened.
@@ -120,9 +150,8 @@ public final class SerialQDevice: ObservableObject, QDevice {
     }
 
     private func write(_ data: Data) throws {
-        guard let handle else { throw QDeviceError.notConnected }
         do {
-            try handle.write(contentsOf: data)
+            try serialWriter.write(data)
         } catch {
             disconnectNow()
             throw QDeviceError.serialConnection(error.localizedDescription)
@@ -141,8 +170,18 @@ public final class SerialQDevice: ObservableObject, QDevice {
             receiveBuffer.removeSubrange(...newline)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             let message = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if message == "Q|\(QSerialProtocol.version)" {
+            if let info = QSerialProtocol.deviceInfo(from: message),
+               info.protocolVersion == QSerialProtocol.version {
+                firmwareVersion = info.firmwareVersion
+                deviceIdentifier = info.deviceIdentifier
                 receivedReady = true
+            } else if QSerialProtocol.isHeartbeatChallenge(message) {
+                do {
+                    try serialWriter.write(QSerialProtocol.heartbeatCommand)
+                } catch {
+                    logger.error("Q heartbeat challenge response failed: \(error.localizedDescription, privacy: .public)")
+                    disconnectNow()
+                }
             } else if let event = QSerialProtocol.buttonEvent(from: message) {
                 buttonContinuation.yield(event)
             }
@@ -150,34 +189,38 @@ public final class SerialQDevice: ObservableObject, QDevice {
     }
 
     private func startHeartbeat() {
-        heartbeatTask?.cancel()
-        heartbeatTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    return
-                }
-                guard let self, isConnected else { return }
-                do {
-                    try write(QSerialProtocol.heartbeatCommand)
-                } catch {
-                    logger.error("Q heartbeat failed: \(error.localizedDescription, privacy: .public)")
-                    return
+        heartbeatTimer?.cancel()
+        let writer = serialWriter
+        let timer = DispatchSource.makeTimerSource(queue: heartbeatQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            do {
+                try writer.write(QSerialProtocol.heartbeatCommand)
+            } catch {
+                let reason = error.localizedDescription
+                Task { @MainActor [weak self] in
+                    guard let self, isConnected else { return }
+                    logger.error("Q heartbeat failed: \(reason, privacy: .public)")
+                    disconnectNow()
                 }
             }
         }
+        heartbeatTimer = timer
+        timer.resume()
     }
 
     private func disconnectNow() {
-        heartbeatTask?.cancel()
-        heartbeatTask = nil
+        heartbeatTimer?.setEventHandler {}
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
         handle?.readabilityHandler = nil
-        try? handle?.close()
+        serialWriter.close()
         handle = nil
         receiveBuffer.removeAll(keepingCapacity: true)
         receivedReady = false
         portPath = nil
+        firmwareVersion = nil
+        deviceIdentifier = nil
         isConnected = false
     }
 }
