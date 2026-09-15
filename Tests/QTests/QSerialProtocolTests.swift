@@ -4,6 +4,11 @@ import Testing
 
 @Suite("Q USB serial protocol")
 struct QSerialProtocolTests {
+    @Test func encodesHeartbeatWithProtocolVersion() throws {
+        let command = try #require(String(data: QSerialProtocol.heartbeatCommand, encoding: .utf8))
+        #expect(command == "P|1\n")
+    }
+
     @Test func encodesExactlyThreeLEDsWithNormalBrightnessSemantics() throws {
         let scene = QScene(
             name: "Hardware test",

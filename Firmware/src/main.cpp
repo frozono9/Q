@@ -30,6 +30,7 @@ constexpr uint32_t kDoublePressMs = 260;
 constexpr uint32_t kLongPressMs = 650;
 constexpr uint32_t kConnectedPulsePeriodMs = 700;
 constexpr uint8_t kConnectedPulseCount = 3;
+constexpr uint32_t kAppHeartbeatTimeoutMs = 4000;
 
 enum Animation : uint8_t {
   Solid = 0,
@@ -72,6 +73,7 @@ enum ConnectionState : uint8_t {
 
 ConnectionState connectionState = AwaitingApp;
 uint32_t connectionStateStartedAt = 0;
+uint32_t lastAppContactAt = 0;
 
 char serialLine[256];
 size_t serialLength = 0;
@@ -295,6 +297,15 @@ void processSerialLine(char *line) {
     Serial.println("Q|1");
     connectionState = ConfirmingApp;
     connectionStateStartedAt = millis();
+    lastAppContactAt = connectionStateStartedAt;
+    return;
+  }
+  if (strcmp(command, "P") == 0) {
+    lastAppContactAt = millis();
+    if (connectionState == AwaitingApp) {
+      connectionState = ConfirmingApp;
+      connectionStateStartedAt = lastAppContactAt;
+    }
     return;
   }
   if (strcmp(command, "S") != 0) return;
@@ -309,6 +320,7 @@ void processSerialLine(char *line) {
   }
   memcpy(states, pending, sizeof(states));
   sceneStartedAt = millis();
+  lastAppContactAt = sceneStartedAt;
   Serial.println("A|scene");
 }
 
@@ -374,6 +386,14 @@ void serviceButton(uint32_t now) {
   }
 }
 
+void serviceAppConnection(uint32_t now) {
+  if (connectionState == AwaitingApp) return;
+  if (static_cast<uint32_t>(now - lastAppContactAt) <= kAppHeartbeatTimeoutMs) return;
+
+  connectionState = AwaitingApp;
+  connectionStateStartedAt = now;
+}
+
 }  // namespace
 
 void setup() {
@@ -406,5 +426,6 @@ void loop() {
   }
 
   serviceSerial();
+  serviceAppConnection(now);
   serviceButton(now);
 }

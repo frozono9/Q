@@ -15,6 +15,7 @@ public final class SerialQDevice: ObservableObject, QDevice {
 
     private let buttonContinuation: AsyncStream<QButtonEvent>.Continuation
     private var handle: FileHandle?
+    private var heartbeatTask: Task<Void, Never>?
     private var receiveBuffer = Data()
     private var receivedReady = false
     private let logger = Logger(subsystem: "app.q", category: "serial-device")
@@ -26,6 +27,7 @@ public final class SerialQDevice: ObservableObject, QDevice {
     }
 
     deinit {
+        heartbeatTask?.cancel()
         handle?.readabilityHandler = nil
         try? handle?.close()
         buttonContinuation.finish()
@@ -65,6 +67,7 @@ public final class SerialQDevice: ObservableObject, QDevice {
 
                 isConnected = true
                 try await apply(scene: currentScene)
+                startHeartbeat()
                 logger.notice("Physical Q connected at \(path, privacy: .public)")
                 return
             } catch {
@@ -146,7 +149,29 @@ public final class SerialQDevice: ObservableObject, QDevice {
         }
     }
 
+    private func startHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                guard let self, isConnected else { return }
+                do {
+                    try write(QSerialProtocol.heartbeatCommand)
+                } catch {
+                    logger.error("Q heartbeat failed: \(error.localizedDescription, privacy: .public)")
+                    return
+                }
+            }
+        }
+    }
+
     private func disconnectNow() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         handle?.readabilityHandler = nil
         try? handle?.close()
         handle = nil

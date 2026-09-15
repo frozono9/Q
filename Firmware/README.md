@@ -17,6 +17,11 @@ The macOS app discovers the resulting `/dev/cu.*` USB serial port automatically,
 sends its current three-LED scene, and receives single-, double-, and long-press
 events. No Wi-Fi, pairing, API key, or manual port selection is required.
 
+The app also sends a heartbeat once per second. If firmware receives no app
+traffic for four seconds, Q returns to its red waiting pulse. A resumed or
+restarted app triggers the three-pulse green confirmation before the last scene
+continues.
+
 ## Hardware mapping
 
 | LED | Red | Green | Blue |

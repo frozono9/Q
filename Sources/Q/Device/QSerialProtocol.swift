@@ -5,6 +5,7 @@ import Foundation
 /// cheap to parse on the XIAO ESP32-C3.
 public enum QSerialProtocol {
     public static let version = 1
+    public static let heartbeatCommand = Data("P|\(version)\n".utf8)
 
     public static func sceneCommand(_ scene: QScene) -> Data {
         let leds = scene.leds.map { led in
