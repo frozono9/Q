@@ -340,6 +340,8 @@ struct QMenuBarView: View {
             }
         case .availability:
             return "Choose what Q signals to people around you."
+        case .relaxing:
+            return "A quiet, continuously shifting color gradient."
         case .custom:
             return "Your lights and button actions."
         default:

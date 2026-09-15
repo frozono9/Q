@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <math.h>
+#include <soc/gpio_struct.h>
 
 namespace {
 
@@ -19,9 +20,10 @@ constexpr uint8_t kPins[kLedCount][kChannelCount] = {
 // than red/blue in the fitted LED. They are intentionally easy to tune after
 // seeing the first assembled unit.
 constexpr float kChannelCalibration[kChannelCount] = {0.55f, 0.20f, 1.0f};
-// Keep the nine-channel software PWM comfortably above the visible flicker
-// range. 256 steps at 10 us produces a target refresh rate of about 391 Hz.
-constexpr uint32_t kPwmStepMicros = 10;
+// A hardware timer advances the 128-level software PWM every 20 us. This keeps
+// the refresh at about 391 Hz without timing jitter from USB or rendering work.
+constexpr uint8_t kPwmLevels = 128;
+constexpr uint32_t kPwmStepMicros = 20;
 constexpr uint32_t kRenderIntervalMs = 16;
 constexpr uint32_t kDebounceMs = 25;
 constexpr uint32_t kDoublePressMs = 260;
@@ -58,6 +60,8 @@ struct LedState {
 
 LedState states[kLedCount];
 volatile uint8_t rendered[kLedCount][kChannelCount] = {};
+portMUX_TYPE pwmMux = portMUX_INITIALIZER_UNLOCKED;
+hw_timer_t *pwmTimer = nullptr;
 uint32_t sceneStartedAt = 0;
 
 enum ConnectionState : uint8_t {
@@ -161,7 +165,8 @@ void hsvToRgb(float hue, float saturation, float value, float &red, float &green
 uint8_t correctedLevel(float component, float brightness, float intensity, uint8_t channel) {
   const float linear = clamp01(component * brightness * intensity);
   const float gammaCorrected = powf(linear, 2.2f);
-  return static_cast<uint8_t>(roundf(255.0f * gammaCorrected * kChannelCalibration[channel]));
+  return static_cast<uint8_t>(roundf(
+      kPwmLevels * gammaCorrected * kChannelCalibration[channel]));
 }
 
 void updateRenderedLevels(uint32_t now);
@@ -193,11 +198,15 @@ void renderConnectionStatus(uint32_t now) {
     intensity = envelope * envelope;
   }
 
+  const uint8_t redLevel = correctedLevel(red, 1.0f, intensity, 0);
+  const uint8_t greenLevel = correctedLevel(green, 1.0f, intensity, 1);
+  portENTER_CRITICAL(&pwmMux);
   for (uint8_t led = 0; led < kLedCount; ++led) {
-    rendered[led][0] = correctedLevel(red, 1.0f, intensity, 0);
-    rendered[led][1] = correctedLevel(green, 1.0f, intensity, 1);
+    rendered[led][0] = redLevel;
+    rendered[led][1] = greenLevel;
     rendered[led][2] = 0;
   }
+  portEXIT_CRITICAL(&pwmMux);
 }
 
 void updateRenderedLevels(uint32_t now) {
@@ -206,6 +215,7 @@ void updateRenderedLevels(uint32_t now) {
     return;
   }
 
+  uint8_t nextRendered[kLedCount][kChannelCount] = {};
   const float elapsed = static_cast<float>(now - sceneStartedAt) / 1000.0f;
   for (uint8_t led = 0; led < kLedCount; ++led) {
     const LedState &state = states[led];
@@ -225,27 +235,38 @@ void updateRenderedLevels(uint32_t now) {
 
     const float intensity = animationIntensity(state, led, now);
     const float brightness = state.brightness / 255.0f;
-    rendered[led][0] = correctedLevel(red, brightness, intensity, 0);
-    rendered[led][1] = correctedLevel(green, brightness, intensity, 1);
-    rendered[led][2] = correctedLevel(blue, brightness, intensity, 2);
+    nextRendered[led][0] = correctedLevel(red, brightness, intensity, 0);
+    nextRendered[led][1] = correctedLevel(green, brightness, intensity, 1);
+    nextRendered[led][2] = correctedLevel(blue, brightness, intensity, 2);
   }
+
+  portENTER_CRITICAL(&pwmMux);
+  memcpy((void *)rendered, nextRendered, sizeof(rendered));
+  portEXIT_CRITICAL(&pwmMux);
 }
 
-void serviceSoftwarePwm() {
-  static uint32_t previousMicros = 0;
+void ARDUINO_ISR_ATTR serviceSoftwarePwm() {
   static uint8_t phase = 0;
-  const uint32_t now = micros();
-  if (static_cast<uint32_t>(now - previousMicros) < kPwmStepMicros) return;
-  previousMicros = now;
-  ++phase;
+  uint32_t turnOnMask = 0;
+  uint32_t turnOffMask = 0;
 
   for (uint8_t led = 0; led < kLedCount; ++led) {
     for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
-      // Common-anode inversion is contained here. The rest of the firmware and
-      // the Mac app use normal 0=off, 255=fully-on values.
-      digitalWrite(kPins[led][channel], rendered[led][channel] > phase ? LOW : HIGH);
+      const uint32_t pinMask = 1UL << kPins[led][channel];
+      if (rendered[led][channel] > phase) {
+        turnOnMask |= pinMask;
+      } else {
+        turnOffMask |= pinMask;
+      }
     }
   }
+
+  // Common-anode inversion: clearing an output turns that channel on. Direct
+  // register writes update all nine channels together and avoid digitalWrite
+  // latency inside the timer interrupt.
+  GPIO.out_w1tc.val = turnOnMask;
+  GPIO.out_w1ts.val = turnOffMask;
+  phase = (phase + 1) & (kPwmLevels - 1);
 }
 
 bool parseLed(char *text, LedState &state) {
@@ -365,6 +386,11 @@ void setup() {
   }
   pinMode(kButtonPin, INPUT_PULLUP);
 
+  pwmTimer = timerBegin(0, 80, true);  // 80 MHz / 80 = one tick per microsecond.
+  timerAttachInterrupt(pwmTimer, &serviceSoftwarePwm, true);
+  timerAlarmWrite(pwmTimer, kPwmStepMicros, true);
+  timerAlarmEnable(pwmTimer);
+
   Serial.begin(115200);
   sceneStartedAt = millis();
   connectionStateStartedAt = sceneStartedAt;
@@ -379,7 +405,6 @@ void loop() {
     updateRenderedLevels(now);
   }
 
-  serviceSoftwarePwm();
   serviceSerial();
   serviceButton(now);
 }

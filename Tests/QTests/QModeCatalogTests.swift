@@ -3,8 +3,8 @@ import Testing
 
 @Suite("Prepackaged modes")
 struct QModeCatalogTests {
-    @Test func exposesExactlyFourPrimaryModes() {
-        #expect(QMode.primaryModes == [.aiAgents, .availability, .meetings, .pomodoro])
+    @Test func exposesPrimaryModes() {
+        #expect(QMode.primaryModes == [.aiAgents, .availability, .meetings, .pomodoro, .relaxing])
         #expect(!QMode.primaryModes.contains(.builds))
         #expect(!QMode.primaryModes.contains(.custom))
     }
@@ -14,6 +14,7 @@ struct QModeCatalogTests {
         #expect(QMode.meetings.isExternallyManaged)
         #expect(!QMode.availability.isExternallyManaged)
         #expect(!QMode.pomodoro.isExternallyManaged)
+        #expect(!QMode.relaxing.isExternallyManaged)
     }
 
     @Test func everyPresetHasAResolvableDefaultAndThreeLEDScenes() {
@@ -34,6 +35,7 @@ struct QModeCatalogTests {
         let error = try #require(state("error", in: .aiAgents))
         let availabilityFocus = try #require(state("focus", in: .availability))
         let meetingMuted = try #require(state("muted", in: .meetings))
+        let relaxing = try #require(state("flow", in: .relaxing))
 
         expectAllLEDs(agentIdle, color: .green, animation: .chaseUp)
         expectAllLEDs(agentWorking, color: .amber, animation: .chaseUp)
@@ -42,6 +44,8 @@ struct QModeCatalogTests {
         expectAllLEDs(error, color: .red, animation: .blink)
         expectAllLEDs(availabilityFocus, color: .blue, animation: .solid)
         expectAllLEDs(meetingMuted, color: .blue, animation: .fadeInOut)
+        expectAllLEDs(relaxing, color: .white, animation: .rainbow)
+        #expect(relaxing.scene.leds.map(\.phaseOffset) == [0.0, 0.09, 0.18])
     }
 
     @Test func needsYouOutranksWorking() throws {

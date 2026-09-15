@@ -10,7 +10,7 @@ Discord's primary RTC connection log to detect calls, ignores screen-share RTC
 connections, and can invoke Discord's native mute shortcut after macOS grants Q
 Accessibility control. Meeting states remain read-only in Q.
 
-Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with four factory modes: AI Agents, Availability, Meetings, and Pomodoro. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
+Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with five factory modes: AI Agents, Availability, Meetings, Pomodoro, and Relaxing. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
 
 ## Install Q
 

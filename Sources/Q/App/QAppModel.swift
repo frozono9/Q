@@ -30,7 +30,8 @@ final class QAppModel: ObservableObject {
         .aiAgents: "idle",
         .availability: "available",
         .meetings: "free",
-        .pomodoro: "idle"
+        .pomodoro: "idle",
+        .relaxing: "flow"
     ]
     private var selectedCustomStateByMode: [UUID: UUID] = [:]
     private var pomodoroStateID = "idle"
@@ -171,6 +172,7 @@ final class QAppModel: ObservableObject {
             case "finished": return "Start next phase"
             default: return "Start \(pomodoroConfiguration.focusMinutes)-minute timer"
             }
+        case .relaxing: return "Restart gradient"
         case .builds: return "Open build"
         case .custom:
             guard let action = activeCustomState?.buttonMapping.singlePress else { return "Custom action" }

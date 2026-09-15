@@ -5,6 +5,7 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case availability
     case meetings
     case pomodoro
+    case relaxing
     case builds
     case custom
 
@@ -14,7 +15,8 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
         .aiAgents,
         .availability,
         .meetings,
-        .pomodoro
+        .pomodoro,
+        .relaxing
     ]
 
     public var name: String {
@@ -23,6 +25,7 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
         case .availability: "Availability"
         case .meetings: "Meetings"
         case .pomodoro: "Pomodoro"
+        case .relaxing: "Relaxing"
         case .builds: "Builds"
         case .custom: "Custom"
         }
@@ -34,6 +37,7 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
         case .availability: "person.crop.circle.badge.checkmark"
         case .meetings: "video"
         case .pomodoro: "timer"
+        case .relaxing: "water.waves"
         case .builds: "hammer"
         case .custom: "slider.horizontal.3"
         }
@@ -44,7 +48,7 @@ public enum QMode: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .aiAgents, .meetings:
             return true
-        case .availability, .pomodoro, .builds, .custom:
+        case .availability, .pomodoro, .relaxing, .builds, .custom:
             return false
         }
     }
@@ -107,6 +111,7 @@ public enum QModeCatalog {
         availability,
         meetings,
         pomodoro,
+        relaxing,
         builds,
         custom
     ]
@@ -279,6 +284,32 @@ public enum QModeCatalog {
             QContextualButtonRule(state: .pomodoroBreak, mapping: QButtonMapping(singlePress: .skipPomodoro)),
             QContextualButtonRule(state: .finished, mapping: QButtonMapping(singlePress: .startPomodoro))
         ]
+    )
+
+    public static let relaxing = QModePreset(
+        id: .relaxing,
+        states: [
+            QStatePreset(
+                id: "flow",
+                name: "Slow Flow",
+                state: .custom("relaxingFlow"),
+                scene: QScene(
+                    name: "Relaxing",
+                    leds: [0.0, 0.09, 0.18].map { phase in
+                        QLEDState(
+                            color: .white,
+                            brightness: 0.75,
+                            animation: .rainbow,
+                            animationSpeed: 0.015,
+                            phaseOffset: phase
+                        )
+                    }
+                ),
+                priority: 0
+            )
+        ],
+        defaultStateID: "flow",
+        buttonMapping: QButtonMapping(singlePress: .cycleScene)
     )
 
     public static let builds = QModePreset(
