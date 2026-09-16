@@ -6,6 +6,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let qShowGestureStatus = Notification.Name("QShowGestureStatus")
+    static let qPopoverWillShow = Notification.Name("QPopoverWillShow")
 }
 
 struct QApp: App {
@@ -261,6 +262,7 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         if gesturePopover.isShown {
             gesturePopover.performClose(nil)
         }
+        NotificationCenter.default.post(name: .qPopoverWillShow, object: nil)
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -280,6 +282,10 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     private func schedulePopoverDismissal() {
         popoverDismissTask?.cancel()
         guard popover.isShown else { return }
+        // First-run setup must remain visible until the person explicitly
+        // finishes it or dismisses the popover. A five-second timeout made the
+        // onboarding easy to miss when Q opened automatically after USB attach.
+        guard UserDefaults.standard.bool(forKey: QAppModel.setupCompletedKey) else { return }
         popoverDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled, let self, self.popover.isShown else { return }

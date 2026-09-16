@@ -48,6 +48,11 @@ struct QMenuBarView: View {
             deviceNameDraft = model.physicalDeviceName
             if !setupCompleted { showingSetup = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .qPopoverWillShow)) { _ in
+            guard !setupCompleted else { return }
+            showingSettings = false
+            showingSetup = true
+        }
         .onChange(of: model.physicalDeviceIdentifier) { _, _ in
             deviceNameDraft = model.physicalDeviceName
         }
