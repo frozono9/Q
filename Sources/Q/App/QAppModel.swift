@@ -19,6 +19,11 @@ final class QAppModel: ObservableObject {
     @Published private(set) var isCodexIntegrationAvailable = false
     @Published private(set) var isDiscordIntegrationAvailable = false
     @Published private(set) var isDiscordControlAuthorized = false
+    @Published private(set) var isZoomIntegrationAvailable = false
+    @Published private(set) var isGoogleMeetIntegrationAvailable = false
+    @Published private(set) var isTeamsIntegrationAvailable = false
+    @Published private(set) var activeMeetingSession: QMeetingSession?
+    @Published private(set) var meetingProviderSelection: QMeetingProviderSelection
     @Published private(set) var pomodoroConfiguration: QPomodoroConfiguration
     @Published private(set) var pomodoroRemainingSeconds: Int
     @Published private(set) var gestureSettings: QGestureSettings
@@ -27,6 +32,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var isPhysicalDeviceConnected = false
     @Published private(set) var physicalFirmwareVersion: String?
     @Published private(set) var physicalDeviceIdentifier: String?
+    @Published private(set) var physicalDeviceName = "Q"
     @Published private(set) var physicalPortPath: String?
     @Published private(set) var deviceBrightness: Double
     @Published private(set) var isRunningLightTest = false
@@ -57,14 +63,49 @@ final class QAppModel: ObservableObject {
     private var buttonTestTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private var unscaledScene: QScene?
+    private var meetingSessions: [QMeetingProvider: QMeetingSession] = [:]
+    private var meetingPushToTalkProvider: QMeetingProvider?
+    private var contextualHoldInProgress: QContextualHold?
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
+    private let zoomIntegration = LocalMeetingIntegration(
+        provider: .zoom,
+        bundleIdentifiers: ["us.zoom.xos"],
+        applicationPaths: ["/Applications/zoom.us.app"],
+        detectionKind: .zoom,
+        muteKeyCode: 0,
+        muteFlags: [.maskCommand, .maskShift]
+    )
+    private let teamsIntegration = LocalMeetingIntegration(
+        provider: .teams,
+        bundleIdentifiers: ["com.microsoft.teams2", "com.microsoft.teams"],
+        applicationPaths: ["/Applications/Microsoft Teams.app"],
+        detectionKind: .teams,
+        muteKeyCode: 46,
+        muteFlags: [.maskCommand, .maskShift]
+    )
+    private let googleMeetIntegration = LocalMeetingIntegration(
+        provider: .googleMeet,
+        bundleIdentifiers: [
+            "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac",
+            "org.mozilla.firefox"
+        ],
+        applicationPaths: [
+            "/Applications/Google Chrome.app", "/Applications/Safari.app",
+            "/Applications/Microsoft Edge.app", "/Applications/Firefox.app"
+        ],
+        detectionKind: .googleMeet,
+        muteKeyCode: 2,
+        muteFlags: [.maskCommand]
+    )
     private let firmwareUpdater = QFirmwareUpdater()
     private let logger = Logger(subsystem: "app.q", category: "application")
     private static let gestureSettingsKey = "QGestureSettings"
     private static let gestureSettingsVersionKey = "QGestureSettingsVersion"
     private static let customModesKey = "QCustomModes"
     private static let deviceBrightnessKey = "QDeviceBrightness"
+    private static let deviceNamesKey = "QDeviceNames"
+    private static let meetingProviderSelectionKey = "QMeetingProviderSelection"
     private static let presetReferenceBrightness = 0.85
 
     static let setupCompletedKey = "QSetupCompleted"
@@ -89,6 +130,7 @@ final class QAppModel: ObservableObject {
         gestureSettings = savedGestureSettings
         customModes = savedCustomModes
         selectedCustomModeID = savedCustomModes.first?.id
+        meetingProviderSelection = Self.loadMeetingProviderSelection()
         deviceBrightness = Self.loadDeviceBrightness()
         pomodoroRemainingSeconds = pomodoroConfiguration.focusMinutes * 60
         pomodoroPhaseTotalSeconds = pomodoroConfiguration.focusMinutes * 60
@@ -103,7 +145,10 @@ final class QAppModel: ObservableObject {
             .sink { [weak self] in self?.physicalFirmwareVersion = $0 }
             .store(in: &cancellables)
         self.physicalDevice.$deviceIdentifier
-            .sink { [weak self] in self?.physicalDeviceIdentifier = $0 }
+            .sink { [weak self] identifier in
+                self?.physicalDeviceIdentifier = identifier
+                self?.physicalDeviceName = Self.loadDeviceName(for: identifier)
+            }
             .store(in: &cancellables)
         self.physicalDevice.$portPath
             .sink { [weak self] in self?.physicalPortPath = $0 }
@@ -119,7 +164,7 @@ final class QAppModel: ObservableObject {
             startListeningForButtonEvents()
             startPhysicalDeviceConnection()
             startCodexIntegration()
-            startDiscordIntegration()
+            startMeetingIntegrations()
         } catch {
             logger.error("Could not connect Virtual Q: \(error.localizedDescription, privacy: .public)")
         }
@@ -148,6 +193,11 @@ final class QAppModel: ObservableObject {
 
     var isAccessibilityAuthorized: Bool { AXIsProcessTrusted() }
 
+    var isAnyMeetingIntegrationAvailable: Bool {
+        isDiscordIntegrationAvailable || isZoomIntegrationAvailable ||
+            isGoogleMeetIntegrationAvailable || isTeamsIntegrationAvailable
+    }
+
     var isFirmwareUpdateAvailable: Bool {
         guard isPhysicalDeviceConnected else { return false }
         guard let physicalFirmwareVersion else { return true }
@@ -175,7 +225,8 @@ final class QAppModel: ObservableObject {
         App: \(appVersion) (\(build))
         macOS: \(os)
         Q connected: \(isPhysicalDeviceConnected ? "yes" : "no")
-        Device: \(physicalDeviceIdentifier ?? "unavailable")
+        Device name: \(physicalDeviceName)
+        Device identifier: \(physicalDeviceIdentifier ?? "unavailable")
         Firmware: \(physicalFirmwareVersion ?? "unavailable")
         Expected firmware: \(QFirmwareUpdater.currentVersion)
         Serial port: \(physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "unavailable")
@@ -183,6 +234,11 @@ final class QAppModel: ObservableObject {
         Codex detected: \(isCodexIntegrationAvailable ? "yes" : "no")
         Discord detected: \(isDiscordIntegrationAvailable ? "yes" : "no")
         Discord control: \(isDiscordControlAuthorized ? "available" : "not available")
+        Zoom detected: \(isZoomIntegrationAvailable ? "yes" : "no")
+        Google Meet detected: \(isGoogleMeetIntegrationAvailable ? "yes" : "no")
+        Microsoft Teams detected: \(isTeamsIntegrationAvailable ? "yes" : "no")
+        Meeting provider: \(meetingProviderSelection.name)
+        Active meeting: \(activeMeetingSession?.provider.name ?? "none")
         Mode: \(currentModeName)
         State: \(selectedStateID)
         """
@@ -196,6 +252,18 @@ final class QAppModel: ObservableObject {
     func copyDiagnosticReport() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(diagnosticReport, forType: .string)
+    }
+
+    func setPhysicalDeviceName(_ proposedName: String) {
+        guard let identifier = physicalDeviceIdentifier else { return }
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = String((trimmed.isEmpty ? "Q" : trimmed).prefix(32))
+        physicalDeviceName = name
+        var names = Self.loadDeviceNames()
+        names[identifier] = name
+        if let data = try? JSONEncoder().encode(names) {
+            UserDefaults.standard.set(data, forKey: Self.deviceNamesKey)
+        }
     }
 
     func updateFirmware() {
@@ -283,14 +351,14 @@ final class QAppModel: ObservableObject {
             default: return "Change availability"
             }
         case .meetings:
-            if (selectedStateID == "meeting" || selectedStateID == "muted"),
-               !isDiscordControlAuthorized {
-                return "Enable Discord control"
+            if let meeting = activeMeetingSession, !meeting.canControl {
+                return "Enable meeting control"
             }
             switch selectedStateID {
-            case "meeting": return "Mute Discord"
-            case "muted": return "Unmute Discord"
-            default: return "Open Discord"
+            case "meeting": return "Mute \(activeMeetingSession?.provider.name ?? "meeting")"
+            case "muted": return "Unmute \(activeMeetingSession?.provider.name ?? "meeting")"
+            default:
+                return selectedMeetingProvider.map { "Open \($0.name)" } ?? "Open meeting app"
             }
         case .pomodoro:
             switch pomodoroStateID {
@@ -313,7 +381,13 @@ final class QAppModel: ObservableObject {
         case .aiAgents:
             return isCodexIntegrationAvailable ? "Codex live" : "Codex offline"
         case .meetings:
-            return isDiscordIntegrationAvailable ? "Discord live" : "Discord offline"
+            if let activeMeetingSession { return "\(activeMeetingSession.provider.name) live" }
+            if let provider = selectedMeetingProvider {
+                return isMeetingProviderAvailable(provider)
+                    ? "\(provider.name) ready"
+                    : "\(provider.name) closed"
+            }
+            return isAnyMeetingIntegrationAvailable ? "Meetings ready" : "No meeting apps"
         default:
             return nil
         }
@@ -322,7 +396,11 @@ final class QAppModel: ObservableObject {
     var isIntegrationConnectionActive: Bool {
         switch selectedMode {
         case .aiAgents: return isCodexIntegrationAvailable
-        case .meetings: return isDiscordIntegrationAvailable
+        case .meetings:
+            if let provider = selectedMeetingProvider {
+                return isMeetingProviderAvailable(provider)
+            }
+            return isAnyMeetingIntegrationAvailable
         default: return false
         }
     }
@@ -501,33 +579,108 @@ final class QAppModel: ObservableObject {
         }
     }
 
-    private func startDiscordIntegration() {
+    private func startMeetingIntegrations() {
         isDiscordControlAuthorized = discordIntegration.canControlDiscord
         discordIntegration.start { [weak self] snapshot in
             guard let self else { return }
             isDiscordIntegrationAvailable = snapshot.isDiscordRunning
             isDiscordControlAuthorized = discordIntegration.canControlDiscord
-            updateMeetingState(snapshot.state)
+            updateMeetingSession(
+                QMeetingSession(
+                    provider: .discord,
+                    state: snapshot.state,
+                    isAvailable: snapshot.isDiscordRunning,
+                    canControl: discordIntegration.canControlDiscord
+                )
+            )
         }
+        zoomIntegration.start { [weak self] in self?.updateMeetingSession($0) }
+        teamsIntegration.start { [weak self] in self?.updateMeetingSession($0) }
+        googleMeetIntegration.start { [weak self] in self?.updateMeetingSession($0) }
     }
 
-    private func updateMeetingState(_ state: QState) {
+    private func updateMeetingSession(_ incomingSession: QMeetingSession) {
+        var session = incomingSession
+        if meetingPushToTalkProvider == session.provider {
+            session.state = .meeting
+        }
+        meetingSessions[session.provider] = session
+        switch session.provider {
+        case .discord:
+            isDiscordIntegrationAvailable = session.isAvailable
+            isDiscordControlAuthorized = session.canControl
+        case .zoom:
+            isZoomIntegrationAvailable = session.isAvailable
+        case .googleMeet:
+            isGoogleMeetIntegrationAvailable = session.isAvailable
+        case .teams:
+            isTeamsIntegrationAvailable = session.isAvailable
+        }
+
+        resolveMeetingSession()
+    }
+
+    private func resolveMeetingSession() {
+        activeMeetingSession = QMeetingArbiter.resolve(
+            Array(meetingSessions.values), selection: meetingProviderSelection
+        )
+        let state = activeMeetingSession?.state ?? .available
         let id: String
         switch state {
         case .meeting: id = "meeting"
         case .muted: id = "muted"
         default: id = "free"
         }
-        guard selectedStateByMode[.meetings] != id else { return }
         selectedStateByMode[.meetings] = id
-        guard selectedMode == .meetings,
-              let preset = QModeCatalog.meetings.states.first(where: { $0.id == id }) else { return }
-        applyFactoryPreset(preset)
+        if selectedMode == .meetings,
+           let preset = QModeCatalog.meetings.states.first(where: { $0.id == id }) {
+            applyFactoryPreset(preset)
+        }
+    }
+
+    func setMeetingProviderSelection(_ selection: QMeetingProviderSelection) {
+        meetingProviderSelection = selection
+        UserDefaults.standard.set(selection.rawValue, forKey: Self.meetingProviderSelectionKey)
+        resolveMeetingSession()
+    }
+
+    func isMeetingProviderAvailable(_ provider: QMeetingProvider) -> Bool {
+        meetingSessions[provider]?.isAvailable == true
+    }
+
+    var selectedMeetingProvider: QMeetingProvider? {
+        meetingProviderSelection.provider
     }
 
     private func handleButtonEvent(_ event: QButtonEvent) {
+        logger.notice(
+            "Button event=\(event.rawValue, privacy: .public) mode=\(self.selectedMode.rawValue, privacy: .public) meeting=\(self.activeMeetingSession?.provider.rawValue ?? "none", privacy: .public)"
+        )
         if event == .longPressEnded {
-            codexIntegration.endDictation()
+            let hold = contextualHoldInProgress
+            contextualHoldInProgress = nil
+            if case .meeting = hold {
+                endMeetingPushToTalk()
+            } else if hold == .dictation {
+                codexIntegration.endDictation()
+            }
+            return
+        }
+        if event == .longPress,
+           gestureSettings.longPress == .contextual,
+           selectedMode != .custom {
+            guard contextualHoldInProgress == nil else { return }
+            var hold = QContextualHold.resolve(mode: selectedMode, meeting: activeMeetingSession)
+            if hold == .none, selectedMode == .meetings,
+               let provider = preferredMeetingProviderForButton() {
+                hold = .meeting(provider)
+            }
+            contextualHoldInProgress = hold
+            switch hold {
+            case .meeting(let provider): beginMeetingPushToTalk(provider: provider)
+            case .dictation: codexIntegration.startDictation(in: agentSlots.first?.session)
+            case .none: break
+            }
             return
         }
         let trigger: QButtonTrigger = switch event {
@@ -702,6 +855,27 @@ final class QAppModel: ObservableObject {
         return min(max(UserDefaults.standard.double(forKey: deviceBrightnessKey), 0.1), 1)
     }
 
+    private static func loadMeetingProviderSelection() -> QMeetingProviderSelection {
+        guard let rawValue = UserDefaults.standard.string(forKey: meetingProviderSelectionKey),
+              let selection = QMeetingProviderSelection(rawValue: rawValue) else {
+            return .automatic
+        }
+        return selection
+    }
+
+    private static func loadDeviceNames() -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: deviceNamesKey),
+              let names = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return names
+    }
+
+    private static func loadDeviceName(for identifier: String?) -> String {
+        guard let identifier else { return "Q" }
+        return loadDeviceNames()[identifier] ?? "Q"
+    }
+
     private static func loadCustomModes() -> [QCustomModeDefinition] {
         guard let data = UserDefaults.standard.data(forKey: customModesKey),
               let modes = try? JSONDecoder().decode([QCustomModeDefinition].self, from: data) else {
@@ -723,15 +897,9 @@ final class QAppModel: ObservableObject {
         case .setState(let state):
             applyState(matching: state)
         case .toggleMeetingMute:
-            let willMute = selectedStateID != "muted"
-            if discordIntegration.toggleMute() {
-                isDiscordControlAuthorized = true
-                updateMeetingState(willMute ? .muted : .meeting)
-            } else {
-                isDiscordControlAuthorized = discordIntegration.canControlDiscord
-            }
+            toggleActiveMeetingMute()
         case .focusMeetingApplication:
-            discordIntegration.focusDiscord()
+            focusActiveMeetingApplication()
         case .startPomodoro:
             startNextPomodoroPhase()
         case .togglePomodoro:
@@ -744,6 +912,111 @@ final class QAppModel: ObservableObject {
             break
         default:
             logger.debug("Button action awaits its integration target")
+        }
+    }
+
+    private func toggleActiveMeetingMute() {
+        guard let meeting = activeMeetingSession else {
+            focusActiveMeetingApplication()
+            return
+        }
+        let delivered: Bool = switch meeting.provider {
+        case .discord: discordIntegration.toggleMute()
+        case .zoom: zoomIntegration.toggleMute()
+        case .googleMeet: googleMeetIntegration.toggleMute()
+        case .teams: teamsIntegration.toggleMute()
+        }
+        guard delivered else { return }
+        var optimistic = meeting
+        optimistic.state = meeting.state == .muted ? .meeting : .muted
+        optimistic.updatedAt = .now
+        updateMeetingSession(optimistic)
+    }
+
+    private func beginMeetingPushToTalk(provider: QMeetingProvider) {
+        guard meetingPushToTalkProvider == nil else { return }
+        guard setMeetingMuted(false, provider: provider) else {
+            logger.error("Push to talk could not unmute \(provider.rawValue, privacy: .public)")
+            return
+        }
+        logger.notice("Push to talk began provider=\(provider.rawValue, privacy: .public)")
+        meetingPushToTalkProvider = provider
+        updateMeetingState(.meeting, provider: provider)
+        NotificationCenter.default.post(
+            name: .qShowGestureStatus,
+            object: nil,
+            userInfo: ["mode": provider.name, "state": "Push to talk"]
+        )
+    }
+
+    private func endMeetingPushToTalk() {
+        guard let provider = meetingPushToTalkProvider else { return }
+        meetingPushToTalkProvider = nil
+        guard setMeetingMuted(true, provider: provider) else {
+            logger.error("Push to talk could not mute \(provider.rawValue, privacy: .public)")
+            return
+        }
+        logger.notice("Push to talk ended provider=\(provider.rawValue, privacy: .public)")
+        updateMeetingState(.muted, provider: provider)
+    }
+
+    private func setMeetingMuted(_ muted: Bool, provider: QMeetingProvider) -> Bool {
+        switch provider {
+        case .discord: discordIntegration.setMuted(muted)
+        case .zoom: zoomIntegration.setMuted(muted)
+        case .googleMeet: googleMeetIntegration.setMuted(muted)
+        case .teams: teamsIntegration.setMuted(muted)
+        }
+    }
+
+    private func updateMeetingState(_ state: QState, provider: QMeetingProvider) {
+        let canControl = switch provider {
+        case .discord: discordIntegration.canControlDiscord
+        case .zoom: zoomIntegration.canControl
+        case .googleMeet: googleMeetIntegration.canControl
+        case .teams: teamsIntegration.canControl
+        }
+        var session = meetingSessions[provider] ?? QMeetingSession(
+            provider: provider,
+            state: state,
+            isAvailable: true,
+            canControl: canControl
+        )
+        session.state = state
+        session.updatedAt = .now
+        updateMeetingSession(session)
+    }
+
+    private func preferredMeetingProviderForButton() -> QMeetingProvider? {
+        if let selectedMeetingProvider { return selectedMeetingProvider }
+        if let activeMeetingSession { return activeMeetingSession.provider }
+
+        switch NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+        case "us.zoom.xos": return .zoom
+        case "com.microsoft.teams2", "com.microsoft.teams": return .teams
+        case "com.hnc.Discord": return .discord
+        case "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac", "org.mozilla.firefox":
+            return .googleMeet
+        default: break
+        }
+
+        let runningProviders = meetingSessions.values
+            .filter(\.isAvailable)
+            .map(\.provider)
+        return runningProviders.count == 1 ? runningProviders[0] : nil
+    }
+
+    private func focusActiveMeetingApplication() {
+        switch activeMeetingSession?.provider ?? selectedMeetingProvider {
+        case .discord: discordIntegration.focusDiscord()
+        case .zoom: zoomIntegration.focus()
+        case .googleMeet: googleMeetIntegration.focus()
+        case .teams: teamsIntegration.focus()
+        case nil:
+            if isZoomIntegrationAvailable { zoomIntegration.focus() }
+            else if isTeamsIntegrationAvailable { teamsIntegration.focus() }
+            else if isGoogleMeetIntegrationAvailable { googleMeetIntegration.focus() }
+            else { discordIntegration.focusDiscord() }
         }
     }
 
@@ -1050,7 +1323,12 @@ final class QAppModel: ObservableObject {
 
     func apply(_ scene: QScene) {
         unscaledScene = scene
-        let renderedScene = sceneWithDeviceBrightness(scene)
+        renderResolvedScene()
+    }
+
+    private func renderResolvedScene() {
+        guard let baseScene = unscaledScene else { return }
+        let renderedScene = sceneWithDeviceBrightness(baseScene)
         Task {
             do {
                 try await virtualDevice.apply(scene: renderedScene)

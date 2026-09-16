@@ -11,7 +11,7 @@ It describes the repository as it exists today:
 - serial protocol version: **1**
 - target hardware: **Seeed Studio XIAO ESP32-C3 + Q production PCB**
 
-### Setup, diagnostics, and firmware lifecycle
+### Setup, diagnostics, naming, and firmware lifecycle
 
 First run is a product check rather than a blank preferences page. It reports
 physical-device handshake, firmware compatibility, Accessibility, Codex,
@@ -27,6 +27,18 @@ offset `0x0`. The updater may target only the serial path that already passed
 Q's handshake. It pauses normal serial reconnection, flashes non-interactively,
 reconnects, and validates the reported firmware version. Never report success
 before that handshake.
+
+Device names are app-side metadata keyed by the firmware-reported stable device
+identifier. Renaming never changes the serial protocol or firmware and survives
+disconnects, reconnects, app restarts, and switching between modules.
+
+### Mode ownership
+
+The mode selected by the user exclusively owns the LEDs and button behavior. Live integrations may update their own mode in the background, but never override another selected mode.
+Within a mode, its own resolver may still order concurrent sources—for example,
+AI Agents sorts several tasks and Meetings chooses one active provider—but that
+decision never crosses a mode boundary. `QAppModel` retains the unscaled base
+scene so brightness changes always re-render the selected mode immediately.
 
 ## 1. What Q is
 
@@ -83,7 +95,8 @@ Custom modes can use any colors or animations.
 ### Local-first ownership
 
 - Codex state is read from local Codex session files.
-- Discord call state is read from Discord's local log.
+- Discord call state is read from Discord's local log. Zoom, Meet, and Teams
+  are classified locally from accessible window and call-control metadata.
 - Preferences and custom modes stay in macOS `UserDefaults`.
 - LED scenes travel directly over USB serial.
 - There is currently no analytics service, cloud relay, or Q account.
@@ -135,7 +148,8 @@ button timing, pin mapping, PWM behavior, or genuinely new animation primitives.
 - **AI Agents:** local Codex tasks, including working, input/permission,
   completion, failure, exact-task focusing, and up to three simultaneous task
   slots.
-- **Meetings:** local Discord desktop call detection and mute/unmute control.
+- **Meetings:** local Discord, Zoom, Google Meet, and Microsoft Teams call
+  detection, provider selection, mute/unmute, and hold-to-talk control.
 - **Pomodoro:** local focus/break timer with editable durations, pause/resume,
   phase transitions, and progressive LED depletion.
 - **Availability:** manually controlled Available, Focus, Busy/DND, Away, and
@@ -151,8 +165,8 @@ not implemented yet:
 - AI Agents currently reads **Codex local session rollouts only**. The standalone
   ChatGPT app/browser, Claude, Cursor, and other agent processes do not yet have
   adapters.
-- Meetings currently supports **Discord only**. Zoom, Google Meet, Microsoft
-  Teams, Slack huddles, and FaceTime do not yet have adapters.
+- Meetings supports Discord, Zoom, Google Meet in a visible browser tab, and
+  Microsoft Teams. Slack huddles and FaceTime do not yet have adapters.
 - Discord mute state is updated when Q sends the mute shortcut; the Discord log
   parser itself currently detects call connection/disconnection, not every mute
   transition.
@@ -197,9 +211,10 @@ the source repository.
    - Test lights cycles red, green, blue, and white;
    - Test button recognizes a physical press.
 
-For Discord mute control, macOS must grant Q Accessibility permission in
+For meeting mute control, macOS must grant Q Accessibility permission in
 **System Settings → Privacy & Security → Accessibility**. Reading call state
-does not require that permission; synthesizing Discord's mute shortcut does.
+from Discord does not require it; identifying Zoom/Meet/Teams controls and
+synthesizing each provider's mute shortcut does.
 
 ## 6. Factory modes in detail
 
@@ -263,19 +278,27 @@ next contextual press.
 
 ### Meetings
 
-Meetings is externally managed by Discord.
+Meetings is externally managed by Discord, Zoom, Google Meet, and Microsoft Teams.
+The provider selector defaults to **Auto**, which follows the active detected
+call. Selecting a provider manually pins all meeting button actions to that app;
+this is useful when several meeting apps are open or a provider exposes only
+partial call metadata.
 
 | State | LEDs | Contextual press |
 | --- | --- | --- |
-| Free | Green solid | Open Discord |
-| In meeting | Blue solid | Mute Discord |
-| Muted | Blue fade | Unmute Discord |
+| Free | Green solid | Open an available meeting app |
+| In meeting | Blue solid | Mute the active provider |
+| Muted | Blue fade | Unmute the active provider |
 
-The integration watches
-`~/Library/Application Support/discord/logs/renderer_js.log`. Only Discord's
-primary/default RTC connection affects Q; screen-share RTC connections are
-ignored. Mute uses Discord's native `Command-Shift-M` shortcut after activating
-Discord.
+Discord watches `~/Library/Application Support/discord/logs/renderer_js.log`;
+only its primary/default RTC connection affects Q, so screen-share RTC is
+ignored. The other providers inspect accessible call controls off the main
+thread and require both a microphone control and a leave/meeting surface before
+declaring an active call. Mute shortcuts are Discord `Command-Shift-M`, Zoom
+`Command-Shift-A`, Google Meet `Command-D`, and Teams `Command-Shift-M`.
+A contextual long press temporarily unmutes the chosen provider. Releasing the
+physical button mutes the same provider again, even if another provider becomes
+active while the button is held.
 
 ### Pomodoro
 
@@ -408,7 +431,7 @@ Q/
 ├── Sources/Q/
 │   ├── App/                           Lifecycle and central app model
 │   ├── Device/                        Hardware abstraction and USB protocol
-│   ├── Integrations/                  Codex and Discord adapters
+│   ├── Integrations/                  Agent and multi-provider meeting adapters
 │   ├── Models/                        Modes, states, scenes, actions, timers
 │   └── UI/                            Menu popover and custom editor
 ├── Sources/QDeviceWatcher/            USB watcher that can launch a closed Q
@@ -711,7 +734,7 @@ permission/input events; false blue alerts destroy trust in the device.
 The Discord adapter is the reference implementation:
 `Sources/Q/Integrations/DiscordLocalIntegration.swift`.
 
-A Zoom, Meet, Teams, or Slack adapter should normalize source-specific state to:
+A meeting adapter should normalize source-specific state to:
 
 - `.available` — no active meeting;
 - `.meeting` — in a call and unmuted/unknown mute state;
@@ -723,10 +746,10 @@ It should also expose:
 - an action to focus the meeting;
 - a supported, permission-aware mute toggle.
 
-With multiple providers, add an aggregator rather than allowing whichever
-provider last polled to overwrite the others. An active meeting should outrank a
-free provider. If two meetings are somehow active, define deterministic recency
-or provider priority.
+With multiple providers, use `QMeetingArbiter` rather than allowing whichever
+provider last polled to overwrite the others. Auto mode resolves active calls by
+mute state and recency. Manual selection filters to exactly one provider and
+never silently falls through to another app.
 
 Browser-based Google Meet needs a different approach from Discord. Prefer a
 browser extension, documented browser automation interface, or explicit local
@@ -813,7 +836,7 @@ Recommended safety rules:
 - preserve a manual way to recover the device from a bad integration.
 
 Do not bolt MCP directly onto `SerialQDevice`. The app model should remain the
-arbiter of ownership, priority, brightness, and button behavior.
+arbiter of mode ownership, brightness, and button behavior.
 
 ## 20. Tests and validation
 
@@ -829,6 +852,8 @@ Current tests cover:
 - Codex activity classification and session discovery;
 - multi-agent slot ordering and scenes;
 - Discord RTC log parsing;
+- meeting-surface classification, provider arbitration, manual provider pinning,
+  and mode-specific long-hold routing;
 - Pomodoro duration resizing and brightness progression;
 - custom-mode encoding/decoding;
 - serial identity, heartbeat, button, and scene encoding;
@@ -851,10 +876,14 @@ For a release candidate, perform this physical checklist:
 6. single, double, and long press are recognized;
 7. unplug/replug reconnects automatically;
 8. Codex working, needs-user, done, error, and multi-agent states behave correctly;
-9. Discord join/leave and mute/unmute behave correctly;
-10. Pomodoro focus, pause, resume, break, completion, and live duration edits work;
-11. every custom animation/action used in the release is tested;
-12. DMG installation is tested on a Mac that has never installed Q.
+9. Discord, Zoom, Google Meet, and Teams each detect join/leave without an
+   open-app false positive;
+10. in Meetings, single press toggles mute and long press temporarily unmutes
+    each provider until release; in AI Agents, the same hold starts Codex
+    Dictate even while a call exists;
+11. Pomodoro focus, pause, resume, break, completion, and live duration edits work;
+12. every custom animation/action used in the release is tested;
+13. DMG installation is tested on a Mac that has never installed Q.
 
 ## 21. Diagnostics
 
@@ -919,8 +948,11 @@ bar is crowded, temporarily close another status item or check around the notch.
 
 ## 22. Data, permissions, and security
 
-- Q reads local Codex session files and Discord's local renderer log.
-- Q uses Accessibility only to synthesize Discord's mute shortcut.
+- Q reads local Codex session files, Discord's local renderer log, and
+  accessibility metadata for supported meeting controls. It does not read
+  meeting chat, audio, captions, or participant content.
+- Q uses Accessibility to identify and focus supported meeting surfaces and to
+  synthesize their documented mute shortcuts.
 - Q opens deep links, apps, HTTPS URLs, and named Apple Shortcuts when requested.
 - Custom-mode data, gesture settings, and brightness are stored in the current
   user's defaults domain for bundle ID `app.q`.
@@ -941,7 +973,7 @@ The highest-value next work is:
 2. collect structured failures for USB reconnects, Gatekeeper, permissions, and
    menu-bar visibility;
 3. add a ChatGPT/Claude-style agent-source aggregator without regressing Codex;
-4. add Zoom/Meet/Teams integrations behind one meeting-state aggregator;
+4. validate Zoom/Meet/Teams detection during real calls and expand localization;
 5. expose a safe local SDK/MCP service around semantic states and custom modes;
 6. add preference export/import so a user's setup can move between Macs;
 7. add automated release builds and a documented versioning policy;

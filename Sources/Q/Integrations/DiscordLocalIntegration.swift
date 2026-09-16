@@ -149,6 +149,13 @@ final class DiscordLocalIntegration {
         return true
     }
 
+    func setMuted(_ shouldMute: Bool) -> Bool {
+        let currentState = lastSnapshot?.state
+        if shouldMute, currentState == .muted { return true }
+        if !shouldMute, currentState == .meeting { return true }
+        return toggleMute()
+    }
+
     private static var runningDiscord: NSRunningApplication? {
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.hnc.Discord").first
     }

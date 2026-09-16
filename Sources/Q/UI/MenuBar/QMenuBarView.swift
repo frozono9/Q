@@ -6,6 +6,7 @@ struct QMenuBarView: View {
     @State private var editingDuration = false
     @State private var showingSettings = false
     @State private var showingSetup = false
+    @State private var deviceNameDraft = "Q"
     @AppStorage(QAppModel.setupCompletedKey) private var setupCompleted = false
     @ObservedObject private var device: VirtualQDevice
 
@@ -38,7 +39,11 @@ struct QMenuBarView: View {
         .frame(width: 320, height: (showingSettings || showingSetup) ? 500 : nil, alignment: .top)
         .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
         .onAppear {
+            deviceNameDraft = model.physicalDeviceName
             if !setupCompleted { showingSetup = true }
+        }
+        .onChange(of: model.physicalDeviceIdentifier) { _, _ in
+            deviceNameDraft = model.physicalDeviceName
         }
     }
 
@@ -97,7 +102,7 @@ struct QMenuBarView: View {
     private var connectionIndicators: some View {
         VStack(alignment: .trailing, spacing: 3) {
             connectionIndicator(
-                label: model.isPhysicalDeviceConnected ? "Q connected" : "No Q",
+                label: model.isPhysicalDeviceConnected ? "\(model.physicalDeviceName) connected" : "No Q",
                 isActive: model.isPhysicalDeviceConnected
             )
 
@@ -187,6 +192,9 @@ struct QMenuBarView: View {
         case .aiAgents where model.agentSlots.count > 1:
             agentContext
 
+        case .meetings:
+            meetingContext
+
         case .custom:
             HStack {
                 Text("\(model.activePreset.states.count) custom states")
@@ -205,6 +213,24 @@ struct QMenuBarView: View {
         default:
             EmptyView()
         }
+    }
+
+    private var meetingContext: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Control provider")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                meetingProviderPicker
+            }
+
+            Text(meetingProviderDetail)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
     }
 
     private var pomodoroContext: some View {
@@ -331,15 +357,21 @@ struct QMenuBarView: View {
                 ? "Watching for agent activity"
                 : "Start a local Codex task to connect."
         case .meetings:
-            if !model.isDiscordIntegrationAvailable {
-                return "Open Discord to connect."
+            if let provider = model.selectedMeetingProvider {
+                if !model.isMeetingProviderAvailable(provider) {
+                    return "Open \(provider.name) to use it."
+                }
+                if model.selectedStateID == "free" {
+                    return "Watching \(provider.name)"
+                }
+            } else if !model.isAnyMeetingIntegrationAvailable {
+                return "Open Discord, Zoom, Meet, or Teams."
             }
             if model.selectedStateID == "free" {
-                return "No active Discord call"
+                return "Watching connected meeting apps"
             }
-            return model.isDiscordControlAuthorized
-                ? "Discord voice call"
-                : "Allow Accessibility access to control Discord."
+            return model.activeMeetingSession.map { "\($0.provider.name) call" }
+                ?? "Allow Accessibility access to control meetings."
         case .pomodoro:
             switch model.selectedStateID {
             case "idle": return "Ready to focus"
@@ -418,7 +450,18 @@ struct QMenuBarView: View {
 
                 if model.isPhysicalDeviceConnected {
                     VStack(spacing: 7) {
-                        deviceDetailRow("Device", value: model.physicalDeviceIdentifier ?? "Q")
+                        HStack {
+                            Text("Name").foregroundStyle(.secondary)
+                            Spacer()
+                            TextField("Q", text: $deviceNameDraft)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: 150)
+                                .onSubmit { model.setPhysicalDeviceName(deviceNameDraft) }
+                            Button("Save") { model.setPhysicalDeviceName(deviceNameDraft) }
+                                .buttonStyle(.link)
+                        }
+                        .font(.caption)
+                        deviceDetailRow("Identifier", value: model.physicalDeviceIdentifier ?? "Q")
                         deviceDetailRow("Firmware", value: model.physicalFirmwareVersion ?? "Legacy")
                         deviceDetailRow(
                             "Port",
@@ -473,6 +516,26 @@ struct QMenuBarView: View {
                     }
                 }
                 .font(.caption2)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Meeting integrations")
+                        .font(.title3.weight(.semibold))
+                    HStack {
+                        Text("Control provider")
+                            .font(.caption)
+                        Spacer()
+                        meetingProviderPicker
+                    }
+                    meetingIntegrationRow("Discord", available: model.isDiscordIntegrationAvailable)
+                    meetingIntegrationRow("Zoom", available: model.isZoomIntegrationAvailable)
+                    meetingIntegrationRow("Google Meet", available: model.isGoogleMeetIntegrationAvailable)
+                    meetingIntegrationRow("Microsoft Teams", available: model.isTeamsIntegrationAvailable)
+                    Text("Auto follows the active call. Choose a provider to pin button control when several meeting apps are open.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
 
                 Divider()
 
@@ -549,7 +612,7 @@ struct QMenuBarView: View {
 
                 setupRow(
                     title: "Physical Q",
-                    detail: model.isPhysicalDeviceConnected ? "Connected" : "Connect it over USB-C",
+                    detail: model.isPhysicalDeviceConnected ? "\(model.physicalDeviceName) connected" : "Connect it over USB-C",
                     ready: model.isPhysicalDeviceConnected
                 )
                 setupRow(
@@ -562,7 +625,7 @@ struct QMenuBarView: View {
                 }
                 setupRow(
                     title: "Accessibility",
-                    detail: model.isAccessibilityAuthorized ? "Granted" : "Needed for Codex and Discord controls",
+                    detail: model.isAccessibilityAuthorized ? "Granted" : "Needed for Codex and meeting controls",
                     ready: model.isAccessibilityAuthorized
                 )
                 if !model.isAccessibilityAuthorized {
@@ -578,6 +641,24 @@ struct QMenuBarView: View {
                     title: "Discord",
                     detail: model.isDiscordIntegrationAvailable ? "Detected" : "Optional · open Discord to test",
                     ready: model.isDiscordIntegrationAvailable,
+                    optional: true
+                )
+                setupRow(
+                    title: "Zoom",
+                    detail: model.isZoomIntegrationAvailable ? "Detected" : "Optional · open Zoom to test",
+                    ready: model.isZoomIntegrationAvailable,
+                    optional: true
+                )
+                setupRow(
+                    title: "Google Meet",
+                    detail: model.isGoogleMeetIntegrationAvailable ? "Browser detected" : "Optional · open Meet in a browser",
+                    ready: model.isGoogleMeetIntegrationAvailable,
+                    optional: true
+                )
+                setupRow(
+                    title: "Microsoft Teams",
+                    detail: model.isTeamsIntegrationAvailable ? "Detected" : "Optional · open Teams to test",
+                    ready: model.isTeamsIntegrationAvailable,
                     optional: true
                 )
 
@@ -672,6 +753,42 @@ struct QMenuBarView: View {
                 .textSelection(.enabled)
         }
         .font(.caption)
+    }
+
+    private func meetingIntegrationRow(_ name: String, available: Bool) -> some View {
+        HStack {
+            Circle()
+                .fill(available ? Color.green : Color.secondary.opacity(0.5))
+                .frame(width: 7, height: 7)
+            Text(name).font(.caption)
+            Spacer()
+            Text(available ? "Detected" : "Not running")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var meetingProviderPicker: some View {
+        Picker("Control provider", selection: Binding(
+            get: { model.meetingProviderSelection },
+            set: { model.setMeetingProviderSelection($0) }
+        )) {
+            ForEach(QMeetingProviderSelection.allCases) { selection in
+                Text(selection.name).tag(selection)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .fixedSize()
+    }
+
+    private var meetingProviderDetail: String {
+        guard let provider = model.selectedMeetingProvider else {
+            return "Auto follows whichever call is active."
+        }
+        return model.isMeetingProviderAvailable(provider)
+            ? "Button actions are pinned to \(provider.name)."
+            : "Open \(provider.name) to enable its button actions."
     }
 
     private func gestureSetting(

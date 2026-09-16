@@ -10,10 +10,17 @@ live local rollout event stream, maps agent activity to Q's semantic states, and
 opens the exact Codex thread through its native `codex://threads/<id>` deep link.
 No separate API key or cloud relay is required.
 
-Meeting mode currently integrates with the local Discord desktop client. Q reads
-Discord's primary RTC connection log to detect calls, ignores screen-share RTC
-connections, and can invoke Discord's native mute shortcut after macOS grants Q
-Accessibility control. Meeting states remain read-only in Q.
+Meeting mode integrates with Discord, Zoom, Google Meet, and Microsoft Teams.
+Discord uses its local RTC log; Zoom, Meet, and Teams are recognized from their
+accessible call controls, so merely opening an app does not create a false call.
+The provider can follow the active call automatically or be pinned to Discord,
+Zoom, Google Meet, or Teams. A contextual long press is push-to-talk: Q unmutes
+the chosen provider while held and mutes it again on release.
+
+The mode selected by the user exclusively owns the LEDs and button. Integrations
+continue observing their own state in the background, but a meeting never
+replaces AI Agents (or any other selected mode). Each physical module can also
+be given a persistent name keyed to its stable hardware identifier.
 
 Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with five factory modes: AI Agents, Availability, Meetings, Pomodoro, and Relaxing. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
 
@@ -99,6 +106,9 @@ is released. macOS Accessibility is used only to deliver Codex's built-in
 Control-Shift-D binding; macOS system Dictation is never invoked.
 In AI Agents Idle, single press opens the most recently modified local Codex
 conversation directly.
+In Meetings, long press temporarily unmutes the selected provider and release
+mutes it again. Auto follows the active call; a manual provider selection makes
+the button deterministic when several meeting apps are open.
 Every press normally shows a compact five-second mode and state confirmation
 beside the menu-bar Q. The AI Agents dictation hold remains silent so it starts
 without a competing popup. Settings are persisted locally.
