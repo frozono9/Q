@@ -30,6 +30,8 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     private let gesturePopover = NSPopover()
     private var gestureStatusObserver: NSObjectProtocol?
     private var gestureDismissTask: Task<Void, Never>?
+    private var popoverDismissTask: Task<Void, Never>?
+    private var isPointerInsidePopover = false
     private var deviceConnectionCancellable: AnyCancellable?
     private let logger = Logger(subsystem: "app.q", category: "status-item")
 
@@ -49,6 +51,8 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        popoverDismissTask?.cancel()
+        gestureDismissTask?.cancel()
         if let gestureStatusObserver {
             NotificationCenter.default.removeObserver(gestureStatusObserver)
         }
@@ -120,7 +124,12 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.contentSize = NSSize(width: 320, height: 470)
         popover.contentViewController = NSHostingController(
-            rootView: QMenuBarView(model: QAppModel.shared)
+            rootView: QMenuBarView(
+                model: QAppModel.shared,
+                onPopoverHoverChanged: { [weak self] isInside in
+                    self?.setPointerInsidePopover(isInside)
+                }
+            )
         )
     }
 
@@ -239,6 +248,8 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePopover() {
         if popover.isShown {
+            popoverDismissTask?.cancel()
+            isPointerInsidePopover = false
             popover.performClose(nil)
         } else {
             showPopover()
@@ -253,6 +264,35 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        isPointerInsidePopover = popover.contentViewController?.view.window?.frame.contains(NSEvent.mouseLocation) ?? false
+        schedulePopoverDismissal()
+    }
+
+    private func setPointerInsidePopover(_ isInside: Bool) {
+        guard popover.isShown else { return }
+        isPointerInsidePopover = isInside
+        // Keep one lightweight deadline active even while hovered. At each
+        // deadline we verify the cursor's real screen position, which protects
+        // against a missed AppKit hover-exit event.
+        schedulePopoverDismissal()
+    }
+
+    private func schedulePopoverDismissal() {
+        popoverDismissTask?.cancel()
+        guard popover.isShown else { return }
+        popoverDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self, self.popover.isShown else { return }
+            let isActuallyInside = self.popover.contentViewController?.view.window?.frame
+                .contains(NSEvent.mouseLocation) ?? false
+            self.isPointerInsidePopover = isActuallyInside
+            if isActuallyInside || NSEvent.pressedMouseButtons != 0 {
+                self.schedulePopoverDismissal()
+                return
+            }
+            self.popover.performClose(nil)
+            self.isPointerInsidePopover = false
+        }
     }
 
 }

@@ -9,10 +9,15 @@ struct QMenuBarView: View {
     @State private var deviceNameDraft = "Q"
     @AppStorage(QAppModel.setupCompletedKey) private var setupCompleted = false
     @ObservedObject private var device: VirtualQDevice
+    private let onPopoverHoverChanged: (Bool) -> Void
 
-    init(model: QAppModel) {
+    init(
+        model: QAppModel,
+        onPopoverHoverChanged: @escaping (Bool) -> Void = { _ in }
+    ) {
         self.model = model
         device = model.virtualDevice
+        self.onPopoverHoverChanged = onPopoverHoverChanged
     }
 
     var body: some View {
@@ -37,6 +42,7 @@ struct QMenuBarView: View {
         // height because its ScrollView otherwise reports a tiny intrinsic size
         // during the first in-place transition.
         .frame(width: 320, height: (showingSettings || showingSetup) ? 500 : nil, alignment: .top)
+        .onHover(perform: onPopoverHoverChanged)
         .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
         .onAppear {
             deviceNameDraft = model.physicalDeviceName
