@@ -75,6 +75,7 @@ final class DiscordLocalIntegration {
     private let logger = Logger(subsystem: "app.q", category: "discord-integration")
     private var monitoringTask: Task<Void, Never>?
     private var lastSnapshot: DiscordIntegrationSnapshot?
+    private var lastRequestedMicrophoneState: QMicrophoneState?
 
     var canControlDiscord: Bool {
         AXIsProcessTrusted()
@@ -90,6 +91,9 @@ final class DiscordLocalIntegration {
                     state: detectedState,
                     isDiscordRunning: isRunning
                 )
+                if snapshot.state == .available {
+                    lastRequestedMicrophoneState = nil
+                }
                 if snapshot.state != lastSnapshot?.state ||
                     snapshot.isDiscordRunning != lastSnapshot?.isDiscordRunning {
                     lastSnapshot = snapshot
@@ -120,40 +124,94 @@ final class DiscordLocalIntegration {
         }
     }
 
-    /// Returns true only when the command can be delivered to Discord.
-    func toggleMute() -> Bool {
-        guard let application = Self.runningDiscord else {
-            focusDiscord()
-            return false
+    func toggleMute() async -> QMeetingControlResult {
+        let observed = await observedMicrophoneState()
+        let current = if observed != .unknown {
+            observed
+        } else if let lastRequestedMicrophoneState {
+            lastRequestedMicrophoneState
+        } else {
+            Self.microphoneState(from: lastSnapshot?.state)
         }
-
-        guard AXIsProcessTrusted() else {
-            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-            return false
-        }
-
-        application.activate(options: [.activateAllWindows])
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(160))
-            guard let source = CGEventSource(stateID: .hidSystemState),
-                  let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: false) else {
-                return
-            }
-            let flags: CGEventFlags = [.maskCommand, .maskShift]
-            keyDown.flags = flags
-            keyUp.flags = flags
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
-        }
-        return true
+        guard current != .unknown else { return .failed }
+        return await setMuted(current == .unmuted)
     }
 
-    func setMuted(_ shouldMute: Bool) -> Bool {
-        let currentState = lastSnapshot?.state
-        if shouldMute, currentState == .muted { return true }
-        if !shouldMute, currentState == .meeting { return true }
-        return toggleMute()
+    func setMuted(_ shouldMute: Bool) async -> QMeetingControlResult {
+        guard let application = Self.runningDiscord else {
+            focusDiscord()
+            return .unavailable
+        }
+        guard lastSnapshot?.state == .meeting || lastSnapshot?.state == .muted else {
+            return .unavailable
+        }
+        guard AXIsProcessTrusted() else {
+            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            return .permissionDenied
+        }
+
+        let desired: QMicrophoneState = shouldMute ? .muted : .unmuted
+        let before = await observedMicrophoneState()
+        logger.notice(
+            "Control requested desired=\(desired.rawValue, privacy: .public) observed=\(before.rawValue, privacy: .public)"
+        )
+        if before == desired {
+            lastRequestedMicrophoneState = desired
+            return .confirmed(desired)
+        }
+
+        let pressed = await Task.detached(priority: .userInitiated) {
+            QMeetingAccessibilitySurface.pressMicrophoneButton(
+                processIdentifier: application.processIdentifier,
+                shouldMute: shouldMute
+            )
+        }.value
+        if !pressed {
+            // Target Discord itself. This avoids stealing focus and removes
+            // the race between activation and Electron accepting its shortcut.
+            guard Self.postMuteShortcut(to: application.processIdentifier) else { return .failed }
+        }
+
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .milliseconds(125))
+            if await observedMicrophoneState() == desired {
+                lastRequestedMicrophoneState = desired
+                return .confirmed(desired)
+            }
+        }
+        lastRequestedMicrophoneState = desired
+        return .sentUnconfirmed
+    }
+
+    private func observedMicrophoneState() async -> QMicrophoneState {
+        guard let application = Self.runningDiscord else { return .unknown }
+        return await Task.detached(priority: .utility) {
+            QMeetingAccessibilitySurface(
+                processIdentifier: application.processIdentifier
+            ).microphoneState()
+        }.value
+    }
+
+    private static func microphoneState(from state: QState?) -> QMicrophoneState {
+        switch state {
+        case .muted: .muted
+        case .meeting: .unmuted
+        default: .unknown
+        }
+    }
+
+    private static func postMuteShortcut(to processIdentifier: pid_t) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: false) else {
+            return false
+        }
+        let flags: CGEventFlags = [.maskCommand, .maskShift]
+        keyDown.flags = flags
+        keyUp.flags = flags
+        keyDown.postToPid(processIdentifier)
+        keyUp.postToPid(processIdentifier)
+        return true
     }
 
     private static var runningDiscord: NSRunningApplication? {

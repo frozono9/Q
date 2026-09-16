@@ -14,7 +14,7 @@ public enum QCustomActionKind: String, Codable, CaseIterable, Identifiable, Send
 
     public var name: String {
         switch self {
-        case .inheritGlobal: "Use general setting"
+        case .inheritGlobal: "Use Q default"
         case .none: "No action"
         case .nextState: "Next state"
         case .previousState: "Previous state"

@@ -16,6 +16,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var selectedStateID = "idle"
     @Published private(set) var availabilityControlMode: QAvailabilityControlMode = .manual
     @Published private(set) var agentSessions: [QAgentSession] = []
+    @Published private(set) var agentSlots: [QAgentSlot] = []
     @Published private(set) var isCodexIntegrationAvailable = false
     @Published private(set) var isDiscordIntegrationAvailable = false
     @Published private(set) var isDiscordControlAuthorized = false
@@ -65,6 +66,8 @@ final class QAppModel: ObservableObject {
     private var unscaledScene: QScene?
     private var meetingSessions: [QMeetingProvider: QMeetingSession] = [:]
     private var meetingPushToTalkProvider: QMeetingProvider?
+    private var meetingHoldID: UUID?
+    private var meetingControlTask: Task<Void, Never>?
     private var contextualHoldInProgress: QContextualHold?
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
@@ -100,8 +103,6 @@ final class QAppModel: ObservableObject {
     )
     private let firmwareUpdater = QFirmwareUpdater()
     private let logger = Logger(subsystem: "app.q", category: "application")
-    private static let gestureSettingsKey = "QGestureSettings"
-    private static let gestureSettingsVersionKey = "QGestureSettingsVersion"
     private static let customModesKey = "QCustomModes"
     private static let deviceBrightnessKey = "QDeviceBrightness"
     private static let deviceNamesKey = "QDeviceNames"
@@ -119,15 +120,7 @@ final class QAppModel: ObservableObject {
         self.physicalDevice = physicalDevice ?? SerialQDevice()
         self.pomodoroConfiguration = pomodoroConfiguration
         let savedCustomModes = Self.loadCustomModes()
-        var savedGestureSettings = Self.loadGestureSettings()
-        if UserDefaults.standard.integer(forKey: Self.gestureSettingsVersionKey) < 1 {
-            savedGestureSettings.longPress = .contextual
-            if let data = try? JSONEncoder().encode(savedGestureSettings) {
-                UserDefaults.standard.set(data, forKey: Self.gestureSettingsKey)
-            }
-            UserDefaults.standard.set(1, forKey: Self.gestureSettingsVersionKey)
-        }
-        gestureSettings = savedGestureSettings
+        gestureSettings = QGestureSettings()
         customModes = savedCustomModes
         selectedCustomModeID = savedCustomModes.first?.id
         meetingProviderSelection = Self.loadMeetingProviderSelection()
@@ -327,10 +320,6 @@ final class QAppModel: ObservableObject {
         activePreset.states.first { $0.id == selectedStateID }
     }
 
-    var agentSlots: [QAgentSlot] {
-        QAgentSlotResolver.resolve(agentSessions)
-    }
-
     var currentButtonActionTitle: String {
         switch selectedMode {
         case .aiAgents:
@@ -500,6 +489,7 @@ final class QAppModel: ObservableObject {
     func updateAgentSessions(_ sessions: [QAgentSession], forceRefresh: Bool = false) {
         guard forceRefresh || sessions != agentSessions else { return }
         agentSessions = sessions
+        agentSlots = QAgentSlotResolver.resolve(sessions, preserving: agentSlots)
         guard selectedMode == .aiAgents else { return }
 
         guard !sessions.isEmpty else {
@@ -509,12 +499,11 @@ final class QAppModel: ObservableObject {
             return
         }
 
-        let slots = agentSlots
-        if slots.count > 1 {
+        if agentSlots.count > 1 {
             selectedStateID = "multiple-agents"
             selectedStateByMode[.aiAgents] = selectedStateID
-            apply(QAgentSlotResolver.scene(for: slots))
-        } else if let state = slots.first?.session.state,
+            apply(QAgentSlotResolver.scene(for: agentSlots))
+        } else if let state = agentSlots.first?.session.state,
                   let preset = activePreset.states.first(where: { $0.state == state }) {
             // A single agent uses the expressive full-device scene (for example,
             // the amber three-step chase). Per-agent LED slots begin at two agents.
@@ -600,10 +589,7 @@ final class QAppModel: ObservableObject {
     }
 
     private func updateMeetingSession(_ incomingSession: QMeetingSession) {
-        var session = incomingSession
-        if meetingPushToTalkProvider == session.provider {
-            session.state = .meeting
-        }
+        let session = incomingSession
         meetingSessions[session.provider] = session
         switch session.provider {
         case .discord:
@@ -648,6 +634,13 @@ final class QAppModel: ObservableObject {
         meetingSessions[provider]?.isAvailable == true
     }
 
+    func meetingProviderStatus(_ provider: QMeetingProvider) -> String {
+        guard let session = meetingSessions[provider] else { return "Not running" }
+        if session.isActive { return session.state == .muted ? "Call · muted" : "Call active" }
+        let applicationRunning = session.context["appRunning"] == "true" || session.isAvailable
+        return applicationRunning ? "No call detected" : "Not running"
+    }
+
     var selectedMeetingProvider: QMeetingProvider? {
         meetingProviderSelection.provider
     }
@@ -656,6 +649,15 @@ final class QAppModel: ObservableObject {
         logger.notice(
             "Button event=\(event.rawValue, privacy: .public) mode=\(self.selectedMode.rawValue, privacy: .public) meeting=\(self.activeMeetingSession?.provider.rawValue ?? "none", privacy: .public)"
         )
+        if event == .triplePress {
+            codexIntegration.openNewChat()
+            NotificationCenter.default.post(
+                name: .qShowGestureStatus,
+                object: nil,
+                userInfo: ["mode": "Codex", "state": "New chat"]
+            )
+            return
+        }
         if event == .longPressEnded {
             let hold = contextualHoldInProgress
             contextualHoldInProgress = nil
@@ -686,6 +688,7 @@ final class QAppModel: ObservableObject {
         let trigger: QButtonTrigger = switch event {
         case .singlePress: .singlePress
         case .doublePress: .doublePress
+        case .triplePress: .doublePress
         case .longPress: .longPress
         case .longPressEnded: .longPress
         }
@@ -699,26 +702,18 @@ final class QAppModel: ObservableObject {
         let assignment: QGestureAction = switch event {
         case .singlePress: gestureSettings.singlePress
         case .doublePress: gestureSettings.doublePress
+        case .triplePress: .showStatus
         case .longPress: gestureSettings.longPress
         case .longPressEnded: gestureSettings.longPress
         }
         performGestureAction(assignment, event: event)
         let isCodexDictationHold = event == .longPress &&
             selectedMode == .aiAgents && assignment == .contextual
-        if !isCodexDictationHold {
+        let waitsForMeetingConfirmation = event == .singlePress &&
+            selectedMode == .meetings && assignment == .contextual &&
+            (selectedStateID == "meeting" || selectedStateID == "muted")
+        if !isCodexDictationHold, !waitsForMeetingConfirmation {
             showGestureStatus()
-        }
-    }
-
-    func setGestureAction(_ action: QGestureAction, for event: QButtonEvent) {
-        switch event {
-        case .singlePress: gestureSettings.singlePress = action
-        case .doublePress: gestureSettings.doublePress = action
-        case .longPress: gestureSettings.longPress = action
-        case .longPressEnded: gestureSettings.longPress = action
-        }
-        if let data = try? JSONEncoder().encode(gestureSettings) {
-            UserDefaults.standard.set(data, forKey: Self.gestureSettingsKey)
         }
     }
 
@@ -783,6 +778,7 @@ final class QAppModel: ObservableObject {
         buttonTestResult = switch event {
         case .singlePress: "Single press detected"
         case .doublePress: "Double press detected"
+        case .triplePress: "Triple press detected"
         case .longPress: "Long press detected"
         case .longPressEnded: "Long press released"
         }
@@ -795,6 +791,7 @@ final class QAppModel: ObservableObject {
                 let trigger: QButtonTrigger = switch event {
                 case .singlePress: .singlePress
                 case .doublePress: .doublePress
+                case .triplePress: .doublePress
                 case .longPress: .longPress
                 case .longPressEnded: .longPress
                 }
@@ -805,6 +802,7 @@ final class QAppModel: ObservableObject {
             let trigger: QButtonTrigger = switch event {
             case .singlePress: .singlePress
             case .doublePress: .doublePress
+            case .triplePress: .doublePress
             case .longPress: .longPress
             case .longPressEnded: .longPress
             }
@@ -838,14 +836,6 @@ final class QAppModel: ObservableObject {
                 "state": currentStatePreset?.name ?? virtualDevice.currentScene.name
             ]
         )
-    }
-
-    private static func loadGestureSettings() -> QGestureSettings {
-        guard let data = UserDefaults.standard.data(forKey: gestureSettingsKey),
-              let settings = try? JSONDecoder().decode(QGestureSettings.self, from: data) else {
-            return QGestureSettings()
-        }
-        return settings
     }
 
     private static func loadDeviceBrightness() -> Double {
@@ -920,53 +910,111 @@ final class QAppModel: ObservableObject {
             focusActiveMeetingApplication()
             return
         }
-        let delivered: Bool = switch meeting.provider {
-        case .discord: discordIntegration.toggleMute()
-        case .zoom: zoomIntegration.toggleMute()
-        case .googleMeet: googleMeetIntegration.toggleMute()
-        case .teams: teamsIntegration.toggleMute()
+        let provider = meeting.provider
+        enqueueMeetingControl { model in
+            let result: QMeetingControlResult = switch provider {
+            case .discord: await model.discordIntegration.toggleMute()
+            case .zoom: await model.zoomIntegration.toggleMute()
+            case .googleMeet: await model.googleMeetIntegration.toggleMute()
+            case .teams: await model.teamsIntegration.toggleMute()
+            }
+            let desired: QMicrophoneState = meeting.state == .muted ? .unmuted : .muted
+            model.handleMeetingControlResult(result, provider: provider, desired: desired)
         }
-        guard delivered else { return }
-        var optimistic = meeting
-        optimistic.state = meeting.state == .muted ? .meeting : .muted
-        optimistic.updatedAt = .now
-        updateMeetingSession(optimistic)
     }
 
     private func beginMeetingPushToTalk(provider: QMeetingProvider) {
         guard meetingPushToTalkProvider == nil else { return }
-        guard setMeetingMuted(false, provider: provider) else {
-            logger.error("Push to talk could not unmute \(provider.rawValue, privacy: .public)")
-            return
-        }
-        logger.notice("Push to talk began provider=\(provider.rawValue, privacy: .public)")
+        let holdID = UUID()
+        meetingHoldID = holdID
         meetingPushToTalkProvider = provider
-        updateMeetingState(.meeting, provider: provider)
-        NotificationCenter.default.post(
-            name: .qShowGestureStatus,
-            object: nil,
-            userInfo: ["mode": provider.name, "state": "Push to talk"]
-        )
+        enqueueMeetingControl { model in
+            // If the release arrived while this command was waiting behind a
+            // previous meeting action, discard the stale unmute completely.
+            guard model.meetingHoldID == holdID,
+                  model.meetingPushToTalkProvider == provider else { return }
+            let result = await model.setMeetingMuted(false, provider: provider)
+            guard model.meetingHoldID == holdID else { return }
+            model.handleMeetingControlResult(
+                result,
+                provider: provider,
+                desired: .unmuted,
+                successLabel: "Push to talk"
+            )
+        }
     }
 
     private func endMeetingPushToTalk() {
         guard let provider = meetingPushToTalkProvider else { return }
         meetingPushToTalkProvider = nil
-        guard setMeetingMuted(true, provider: provider) else {
-            logger.error("Push to talk could not mute \(provider.rawValue, privacy: .public)")
-            return
+        meetingHoldID = nil
+        enqueueMeetingControl { model in
+            let result = await model.setMeetingMuted(true, provider: provider)
+            model.handleMeetingControlResult(
+                result,
+                provider: provider,
+                desired: .muted,
+                successLabel: "Muted"
+            )
         }
-        logger.notice("Push to talk ended provider=\(provider.rawValue, privacy: .public)")
-        updateMeetingState(.muted, provider: provider)
     }
 
-    private func setMeetingMuted(_ muted: Bool, provider: QMeetingProvider) -> Bool {
-        switch provider {
-        case .discord: discordIntegration.setMuted(muted)
-        case .zoom: zoomIntegration.setMuted(muted)
-        case .googleMeet: googleMeetIntegration.setMuted(muted)
-        case .teams: teamsIntegration.setMuted(muted)
+    private func enqueueMeetingControl(
+        _ operation: @escaping @MainActor (QAppModel) async -> Void
+    ) {
+        let previous = meetingControlTask
+        meetingControlTask = Task { [weak self] in
+            _ = await previous?.result
+            guard !Task.isCancelled, let self else { return }
+            await operation(self)
         }
+    }
+
+    private func setMeetingMuted(
+        _ muted: Bool,
+        provider: QMeetingProvider
+    ) async -> QMeetingControlResult {
+        switch provider {
+        case .discord: await discordIntegration.setMuted(muted)
+        case .zoom: await zoomIntegration.setMuted(muted)
+        case .googleMeet: await googleMeetIntegration.setMuted(muted)
+        case .teams: await teamsIntegration.setMuted(muted)
+        }
+    }
+
+    private func handleMeetingControlResult(
+        _ result: QMeetingControlResult,
+        provider: QMeetingProvider,
+        desired: QMicrophoneState,
+        successLabel: String? = nil
+    ) {
+        let stateLabel: String
+        switch result {
+        case .confirmed(let confirmed):
+            if let state = confirmed.qState {
+                updateMeetingState(state, provider: provider)
+            }
+            stateLabel = successLabel ?? (confirmed == .muted ? "Muted" : "Unmuted")
+            logger.notice(
+                "Meeting control confirmed provider=\(provider.rawValue, privacy: .public) state=\(confirmed.rawValue, privacy: .public)"
+            )
+        case .sentUnconfirmed:
+            stateLabel = "Command sent · state unconfirmed"
+            logger.warning(
+                "Meeting control unconfirmed provider=\(provider.rawValue, privacy: .public) desired=\(desired.rawValue, privacy: .public)"
+            )
+        case .permissionDenied:
+            stateLabel = "Allow Accessibility control"
+        case .unavailable:
+            stateLabel = "No active \(provider.name) call"
+        case .failed:
+            stateLabel = "Could not confirm microphone"
+        }
+        NotificationCenter.default.post(
+            name: .qShowGestureStatus,
+            object: nil,
+            userInfo: ["mode": provider.name, "state": stateLabel]
+        )
     }
 
     private func updateMeetingState(_ state: QState, provider: QMeetingProvider) {

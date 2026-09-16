@@ -54,6 +54,7 @@ public enum QSerialProtocol {
         switch line.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "B|single": .singlePress
         case "B|double": .doublePress
+        case "B|triple": .triplePress
         case "B|long": .longPress
         case "B|long-release": .longPressEnded
         default: nil

@@ -6,8 +6,8 @@ integration, animation, or button action.
 
 It describes the repository as it exists today:
 
-- macOS app version: **0.2.2**
-- firmware version: **0.2.2**
+- macOS app version: **0.2.3**
+- firmware version: **0.2.3**
 - serial protocol version: **1**
 - target hardware: **Seeed Studio XIAO ESP32-C3 + Q production PCB**
 
@@ -121,7 +121,7 @@ button timing, pin mapping, PWM behavior, or genuinely new animation primitives.
 - Firmware version reported inside Device Settings.
 - Three independently controlled RGB LEDs.
 - Global brightness setting persisted per Mac.
-- Single, double, and long button gestures.
+- Single, double, triple, and long button gestures.
 - Red breathing startup/waiting indication.
 - Three green connection pulses after a fresh app handshake.
 - Heartbeat and challenge/response watchdog.
@@ -206,7 +206,7 @@ the source repository.
 7. Q's popover opens automatically after the device handshake. Open
    **Settings** and confirm:
    - status is Connected;
-   - firmware is `0.2.2`;
+   - firmware is `0.2.3`;
    - a unique ID beginning with `Q-` is displayed;
    - Test lights cycles red, green, blue, and white;
    - Test button recognizes a physical press.
@@ -255,6 +255,9 @@ Sessions are sorted by semantic priority, then recency:
 Only the three most relevant sessions are displayed. Completion stays visible
 for 10 seconds; an error stays visible for five minutes. When only one relevant
 task remains, Q returns to the expressive full-device scene for that one task.
+Sessions that remain in the selected top three keep their existing LED index;
+new sessions fill empty slots. Priority changes therefore affect inclusion
+without making surviving agents jump between physical LEDs.
 
 The scanner looks for recent `.jsonl` rollouts beneath `~/.codex/sessions`,
 incrementally tails them, and maps task/turn events onto Q states. Pressing Q
@@ -300,6 +303,15 @@ A contextual long press temporarily unmutes the chosen provider. Releasing the
 physical button mutes the same provider again, even if another provider becomes
 active while the button is held.
 
+Q first targets an accessible microphone control inside the meeting window and
+reads the controls again to confirm the new state. Shortcut fallback waits for
+the identified application/window to become active. If the provider does not
+expose a readable mute state, Q reports that the command was sent but remains
+unconfirmed instead of changing the displayed state optimistically. Hold and
+release operations share one serial queue, so a delayed unmute cannot overtake
+the final mute. Meet is considered available only when a visible Meet surface,
+not merely a running browser, is identified.
+
 ### Pomodoro
 
 Default durations are 25 minutes of focus and 5 minutes of break. Focus can be
@@ -342,22 +354,22 @@ Firmware recognizes:
 - double-press window: 260 ms;
 - long-press threshold: 650 ms.
 
-Global assignments are configured under Settings:
+Q uses a fixed, predictable global gesture grammar:
 
-| Gesture | Factory default | Available assignments |
-| --- | --- | --- |
-| Single press | Contextual action | Contextual, next mode, next state, show status, none |
-| Double press | Next mode | Contextual, next mode, next state, show status, none |
-| Long press | Contextual action | Contextual, next mode, next state, show status, none |
+| Gesture | Behavior |
+| --- | --- |
+| Single press | Contextual action |
+| Double press | Next mode |
+| Long press | Contextual action |
 
 Every recognized gesture normally shows a small mode/state confirmation for five
-seconds, including gestures whose assignment is Show status or None. The AI Agents
-dictation hold stays silent so recording starts immediately and unobstructed.
+seconds. The AI Agents dictation hold stays silent so recording starts immediately
+and unobstructed.
 
 Externally managed modes reject manual state cycling. This prevents the app from
 claiming an AI task or meeting is in a state that its source did not report.
 
-Custom states can inherit each global gesture or override it independently.
+Custom states can inherit Q's standard gesture behavior or override it independently.
 
 ## 8. Extending Q without code
 
@@ -370,7 +382,8 @@ From the mode menu, choose **New Custom Mode…**. A mode contains:
 - one or more named states;
 - a default state;
 - exactly three LED definitions per state;
-- single, double, and long-press actions per state.
+- single, double, and long-press actions per state; triple press remains the
+  global new-Codex-chat shortcut.
 
 Each LED supports:
 
@@ -556,7 +569,7 @@ Animation codes must remain synchronized between Swift and firmware:
 
 | Message | Meaning |
 | --- | --- |
-| `Q|1|0.2.2|Q-<chip-id>` | Identity/handshake response |
+| `Q|1|0.2.3|Q-<chip-id>` | Identity/handshake response |
 | `A|scene` | Scene accepted |
 | `E|scene` | Malformed scene |
 | `E|length` | Input line overflow |
@@ -873,7 +886,7 @@ For a release candidate, perform this physical checklist:
 3. current scene returns after the pulses;
 4. RGBW test lights all three packages correctly;
 5. brightness works from minimum to maximum without objectionable flicker;
-6. single, double, and long press are recognized;
+6. single, double, triple, and long press are recognized;
 7. unplug/replug reconnects automatically;
 8. Codex working, needs-user, done, error, and multi-agent states behave correctly;
 9. Discord, Zoom, Google Meet, and Teams each detect join/leave without an
@@ -929,9 +942,9 @@ Check, in order:
 
 ### Random red flash
 
-Firmware 0.2.2 includes the challenge/response grace period that fixes transient
+Firmware 0.2.3 includes the challenge/response grace period that fixes transient
 heartbeat misses and reports long-press release for held actions such as Codex
-dictation. Confirm Settings reports 0.2.2. Older firmware should be
+dictation and adds native triple-press recognition. Confirm Settings reports 0.2.3. Older firmware should be
 reflashed.
 
 ### Wrong colors or one dead channel

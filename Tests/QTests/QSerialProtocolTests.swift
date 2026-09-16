@@ -48,6 +48,7 @@ struct QSerialProtocolTests {
     @Test func decodesPhysicalButtonEvents() {
         #expect(QSerialProtocol.buttonEvent(from: "B|single\r\n") == .singlePress)
         #expect(QSerialProtocol.buttonEvent(from: "B|double") == .doublePress)
+        #expect(QSerialProtocol.buttonEvent(from: "B|triple") == .triplePress)
         #expect(QSerialProtocol.buttonEvent(from: "B|long") == .longPress)
         #expect(QSerialProtocol.buttonEvent(from: "B|long-release") == .longPressEnded)
         #expect(QSerialProtocol.buttonEvent(from: "Q|1") == nil)

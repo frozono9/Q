@@ -17,7 +17,7 @@ enum QFirmwareUpdateState: Equatable {
 }
 
 struct QFirmwareUpdater {
-    static let currentVersion = "0.2.2"
+    static let currentVersion = "0.2.3"
 
     enum UpdateError: LocalizedError {
         case missingTool

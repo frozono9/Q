@@ -199,6 +199,7 @@ private struct VirtualButtonView: View {
     @State private var isPressed = false
     @State private var pressStartedAt: Date?
     @State private var pendingSinglePress: Task<Void, Never>?
+    @State private var shortPressCount = 0
 
     var body: some View {
         Circle()
@@ -222,9 +223,10 @@ private struct VirtualButtonView: View {
             .animation(.easeOut(duration: 0.1), value: isPressed)
             .onDisappear {
                 pendingSinglePress?.cancel()
+                shortPressCount = 0
             }
             .accessibilityLabel("Q button")
-            .accessibilityHint("Click, double-click, or press and hold")
+            .accessibilityHint("Click, double-click, triple-click, or press and hold")
             .accessibilityAddTraits(.isButton)
     }
 
@@ -243,6 +245,7 @@ private struct VirtualButtonView: View {
                 if duration >= 0.65 {
                     pendingSinglePress?.cancel()
                     pendingSinglePress = nil
+                    shortPressCount = 0
                     device.sendButtonEvent(.longPress)
                 } else {
                     registerShortPress()
@@ -251,17 +254,21 @@ private struct VirtualButtonView: View {
     }
 
     private func registerShortPress() {
-        if pendingSinglePress != nil {
-            pendingSinglePress?.cancel()
+        shortPressCount += 1
+        pendingSinglePress?.cancel()
+
+        if shortPressCount >= 3 {
+            shortPressCount = 0
             pendingSinglePress = nil
-            device.sendButtonEvent(.doublePress)
+            device.sendButtonEvent(.triplePress)
             return
         }
 
         pendingSinglePress = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(260))
             guard !Task.isCancelled else { return }
-            device.sendButtonEvent(.singlePress)
+            device.sendButtonEvent(shortPressCount == 1 ? .singlePress : .doublePress)
+            shortPressCount = 0
             pendingSinglePress = nil
         }
     }

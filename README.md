@@ -1,6 +1,6 @@
 # Q
 
-Current private-beta release: **Q 0.2.2**, paired with **firmware 0.2.2**.
+Current private-beta release: **Q 0.2.3**, paired with **firmware 0.2.3**.
 
 For the complete product, hardware, architecture, protocol, contributor, and
 extension guide, see [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
@@ -14,8 +14,10 @@ Meeting mode integrates with Discord, Zoom, Google Meet, and Microsoft Teams.
 Discord uses its local RTC log; Zoom, Meet, and Teams are recognized from their
 accessible call controls, so merely opening an app does not create a false call.
 The provider can follow the active call automatically or be pinned to Discord,
-Zoom, Google Meet, or Teams. A contextual long press is push-to-talk: Q unmutes
-the chosen provider while held and mutes it again on release.
+Zoom, Google Meet, or Teams. Microphone operations are serialized and confirmed
+from accessible controls when the provider exposes them; an unverified shortcut
+is reported as such. A contextual long press is push-to-talk: Q unmutes the
+chosen provider while held and mutes it again on release.
 
 The mode selected by the user exclusively owns the LEDs and button. Integrations
 continue observing their own state in the background, but a meeting never
@@ -68,7 +70,7 @@ launchable bundle, run `sh Scripts/package-app.sh` and open `.build/Q.app`.
 
 The production XIAO ESP32-C3 firmware lives in `Firmware`. Once flashed, Q finds
 the device over USB automatically, mirrors every app scene to the physical LEDs,
-and accepts single-, double-, and long-button presses. See `Firmware/README.md`
+and accepts single-, double-, triple-, and long-button presses. See `Firmware/README.md`
 for the one-command PlatformIO upload flow and the verified PCB pin map.
 
 ## Distribute Q
@@ -106,6 +108,8 @@ is released. macOS Accessibility is used only to deliver Codex's built-in
 Control-Shift-D binding; macOS system Dictation is never invoked.
 In AI Agents Idle, single press opens the most recently modified local Codex
 conversation directly.
+Triple press is a fixed global shortcut that opens a new Codex chat from any Q
+mode. It is deliberately not reassigned per mode, so the gesture stays predictable.
 In Meetings, long press temporarily unmutes the selected provider and release
 mutes it again. Auto follows the active call; a manual provider selection makes
 the button deterministic when several meeting apps are open.
@@ -137,7 +141,9 @@ The Swift package can also be opened directly in Xcode when the full Xcode appli
 
 - `QCore` contains transport-safe `Codable` semantic state and the device layer, independently importable by future app and CLI targets.
 - `QModeCatalog` defines the five primary MVP modes, their semantic states, scenes, priorities, and safe default button mappings.
-- `QAgentSlotResolver` assigns the three most relevant agent sessions to physical LED slots using semantic priority and recency.
+- `QAgentSlotResolver` selects the three most relevant agent sessions using
+  semantic priority and recency, then preserves each surviving session's LED
+  position to prevent distracting slot swaps.
 - `QPomodoroConfiguration` provides configurable local focus/break timing and the standard duration presets.
 - `QCustomModeDefinition` is the persisted declarative format for user-created modes, states, scenes, and safe button actions.
 - `Device/QDevice.swift` is the hardware-independent boundary used by the rest of the app.

@@ -14,8 +14,8 @@ pio device monitor
 ```
 
 The macOS app discovers the resulting `/dev/cu.*` USB serial port automatically,
-sends its current three-LED scene, and receives single-, double-, and long-press
-events. No Wi-Fi, pairing, API key, or manual port selection is required.
+sends its current three-LED scene, and receives single-, double-, triple-, and
+long-press events. No Wi-Fi, pairing, API key, or manual port selection is required.
 
 The app sends a heartbeat once per second from a dedicated serial queue. After
 eight seconds without app traffic, firmware keeps the current scene visible and
@@ -25,7 +25,7 @@ app responds immediately, while a genuinely restarted app performs a new
 handshake and triggers the three green pulses.
 
 The handshake response includes protocol version, firmware version, and a
-stable device identifier, for example `Q|1|0.2.2|Q-E8F60A143570`.
+stable device identifier, for example `Q|1|0.2.3|Q-E8F60A143570`.
 
 For held actions, firmware emits `B|long` when the threshold is crossed and
 `B|long-release` when the physical button is released.

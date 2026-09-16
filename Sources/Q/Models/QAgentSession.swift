@@ -35,6 +35,8 @@ public struct QAgentSession: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
+    public var stableIdentity: String { "\(source)::\(id)" }
+
     public var ledState: QLEDState {
         switch state {
         case .waitingForUser, .permissionRequired:
@@ -69,8 +71,11 @@ public struct QAgentSlot: Codable, Equatable, Identifiable, Sendable {
 }
 
 public enum QAgentSlotResolver {
-    public static func resolve(_ sessions: [QAgentSession]) -> [QAgentSlot] {
-        sessions
+    public static func resolve(
+        _ sessions: [QAgentSession],
+        preserving previousSlots: [QAgentSlot] = []
+    ) -> [QAgentSlot] {
+        let selected = sessions
             .sorted {
                 if $0.relevancePriority == $1.relevancePriority {
                     return $0.updatedAt > $1.updatedAt
@@ -78,8 +83,31 @@ public enum QAgentSlotResolver {
                 return $0.relevancePriority > $1.relevancePriority
             }
             .prefix(QScene.ledCount)
-            .enumerated()
-            .map { QAgentSlot(index: $0.offset, session: $0.element) }
+        var selectedByID: [String: QAgentSession] = [:]
+        for session in selected where selectedByID[session.stableIdentity] == nil {
+            selectedByID[session.stableIdentity] = session
+        }
+        var assigned: [Int: QAgentSession] = [:]
+        var assignedIDs: Set<String> = []
+
+        for slot in previousSlots.sorted(by: { $0.index < $1.index }) {
+            guard QScene.ledCount > slot.index,
+                  let updated = selectedByID[slot.session.stableIdentity],
+                  assigned[slot.index] == nil else { continue }
+            assigned[slot.index] = updated
+            assignedIDs.insert(updated.stableIdentity)
+        }
+
+        var openIndices = (0..<QScene.ledCount).filter { assigned[$0] == nil }
+        for session in selected where !assignedIDs.contains(session.stableIdentity) {
+            guard !openIndices.isEmpty else { break }
+            assigned[openIndices.removeFirst()] = session
+            assignedIDs.insert(session.stableIdentity)
+        }
+
+        return assigned.keys.sorted().compactMap { index in
+            assigned[index].map { QAgentSlot(index: index, session: $0) }
+        }
     }
 
     public static func scene(for slots: [QAgentSlot]) -> QScene {

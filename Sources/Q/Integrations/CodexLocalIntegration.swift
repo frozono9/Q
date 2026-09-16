@@ -322,6 +322,34 @@ final class CodexLocalIntegration {
         }
     }
 
+    func openNewChat() {
+        guard AXIsProcessTrusted() else {
+            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            return
+        }
+
+        if Self.runningCodex == nil,
+           let url = URL(string: "codex://") {
+            NSWorkspace.shared.open(url)
+        }
+        Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                if let application = Self.runningCodex {
+                    application.activate(options: [.activateAllWindows])
+                    try? await Task.sleep(for: .milliseconds(120))
+                    if Self.postNewChatShortcut(to: application.processIdentifier) {
+                        self?.logger.notice("Opened a new Codex chat")
+                    } else {
+                        self?.logger.error("Could not invoke Codex's newTask command")
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self?.logger.error("Could not open a new chat because Codex did not launch")
+        }
+    }
+
     func startDictation(in session: QAgentSession?) {
         guard AXIsProcessTrusted() else {
             AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
@@ -381,6 +409,22 @@ final class CodexLocalIntegration {
         ) else { return false }
         event.flags = [.maskControl, .maskShift]
         event.post(tap: .cghidEventTap)
+        return true
+    }
+
+    /// Codex registers Command-N as its `newTask` command and allows the
+    /// accelerator while its window is hidden. Addressing the event directly
+    /// to Codex avoids whichever app happened to be frontmost receiving it.
+    private static func postNewChatShortcut(to processIdentifier: pid_t) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: false) else {
+            return false
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.postToPid(processIdentifier)
+        keyUp.postToPid(processIdentifier)
         return true
     }
 }

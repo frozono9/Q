@@ -190,7 +190,7 @@ private struct QCustomModeEditorView: View {
                 CustomActionEditor(title: "Single press", action: state.buttonMapping.singlePress)
                 CustomActionEditor(title: "Double press", action: state.buttonMapping.doublePress)
                 CustomActionEditor(title: "Long press", action: state.buttonMapping.longPress)
-                Text("Use general setting inherits the global gesture. Any other choice overrides it in this state.")
+                Text("Use Q default follows Q's standard gesture. Any other choice overrides it in this state.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

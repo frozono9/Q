@@ -42,6 +42,42 @@ struct QAgentSlotResolverTests {
         #expect(!scene.leds[2].isEnabled)
     }
 
+    @Test func preservesExistingLEDPositionsWhenRecencyChanges() {
+        let first = QAgentSlotResolver.resolve([
+            session("alpha", .working, secondsAgo: 3),
+            session("beta", .working, secondsAgo: 1)
+        ])
+        let updated = QAgentSlotResolver.resolve([
+            session("alpha", .waitingForUser),
+            session("beta", .working, secondsAgo: 30),
+            session("gamma", .working)
+        ], preserving: first)
+
+        #expect(updated.first(where: { $0.session.id == "alpha" })?.index == 1)
+        #expect(updated.first(where: { $0.session.id == "beta" })?.index == 0)
+        #expect(updated.first(where: { $0.session.id == "gamma" })?.index == 2)
+    }
+
+    @Test func replacesOnlyTheSlotThatLeavesTheTopThree() {
+        let first = QAgentSlotResolver.resolve([
+            session("one", .working),
+            session("two", .working),
+            session("three", .working)
+        ])
+        let updated = QAgentSlotResolver.resolve([
+            session("one", .working),
+            session("three", .working),
+            session("urgent", .waitingForUser)
+        ], preserving: first)
+
+        #expect(updated.first(where: { $0.session.id == "one" })?.index ==
+            first.first(where: { $0.session.id == "one" })?.index)
+        #expect(updated.first(where: { $0.session.id == "three" })?.index ==
+            first.first(where: { $0.session.id == "three" })?.index)
+        #expect(updated.first(where: { $0.session.id == "urgent" })?.index ==
+            first.first(where: { $0.session.id == "two" })?.index)
+    }
+
     private func session(
         _ id: String,
         _ state: QState,

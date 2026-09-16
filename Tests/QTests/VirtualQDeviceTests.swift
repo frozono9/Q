@@ -34,9 +34,9 @@ struct VirtualQDeviceTests {
         let device = VirtualQDevice()
         var iterator = device.buttonEvents.makeAsyncIterator()
 
-        device.sendButtonEvent(.doublePress)
+        device.sendButtonEvent(.triplePress)
 
         let event = await iterator.next()
-        #expect(event == .doublePress)
+        #expect(event == .triplePress)
     }
 }

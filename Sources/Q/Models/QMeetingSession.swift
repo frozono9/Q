@@ -48,10 +48,104 @@ public enum QMeetingProviderSelection: String, Codable, CaseIterable, Identifiab
     }
 }
 
-public enum QMeetingSurfaceKind: Sendable {
+public enum QMeetingSurfaceKind: Equatable, Sendable {
     case zoom
     case teams
     case googleMeet
+}
+
+public enum QMicrophoneState: String, Codable, Equatable, Sendable {
+    case muted
+    case unmuted
+    case unknown
+
+    public var qState: QState? {
+        switch self {
+        case .muted: .muted
+        case .unmuted: .meeting
+        case .unknown: nil
+        }
+    }
+}
+
+public enum QMeetingControlResult: Equatable, Sendable {
+    case confirmed(QMicrophoneState)
+    case sentUnconfirmed
+    case unavailable
+    case permissionDenied
+    case failed
+
+    public var wasDelivered: Bool {
+        switch self {
+        case .confirmed, .sentUnconfirmed: true
+        case .unavailable, .permissionDenied, .failed: false
+        }
+    }
+}
+
+public enum QMeetingControlVocabulary {
+    public static func normalized(_ value: String) -> String {
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func microphoneState(buttonLabels: [String]) -> QMicrophoneState {
+        for rawLabel in buttonLabels {
+            let label = normalized(rawLabel)
+            if label == "unmute" || unmuteTerms.contains(where: { label.contains($0) }) {
+                return .muted
+            }
+        }
+        for rawLabel in buttonLabels {
+            let label = normalized(rawLabel)
+            if label == "mute" || label == "silenciar" ||
+                muteTerms.contains(where: { label.contains($0) }) {
+                return .unmuted
+            }
+        }
+        return .unknown
+    }
+
+    public static func buttonPerformsDesiredAction(
+        label rawLabel: String,
+        shouldMute: Bool
+    ) -> Bool {
+        let state = microphoneState(buttonLabels: [rawLabel])
+        return shouldMute ? state == .unmuted : state == .muted
+    }
+
+    /// Electron can expose a persistent toggle named "Mute". Here the label
+    /// names the setting rather than the next action, so its AX value is the
+    /// authoritative microphone state.
+    public static func microphoneToggleState(
+        label rawLabel: String,
+        isOn: Bool
+    ) -> QMicrophoneState {
+        guard microphoneState(buttonLabels: [rawLabel]) == .unmuted else {
+            return .unknown
+        }
+        return isOn ? .muted : .unmuted
+    }
+
+    public static func hasLeaveControl(buttonLabels: [String]) -> Bool {
+        buttonLabels.map(normalized).contains { label in
+            leaveTerms.contains(where: { label.contains($0) })
+        }
+    }
+
+    private static let unmuteTerms = [
+        "turn on microphone", "unmute my audio", "activar sonido",
+        "activar microfono", "reactivar audio", "activar audio"
+    ]
+    private static let muteTerms = [
+        "mute microphone", "mute mic", "turn off microphone", "mute my audio",
+        "silenciar microfono", "silenciar audio", "desactivar microfono", "desactivar audio"
+    ]
+    private static let leaveTerms = [
+        "leave", "leave call", "leave meeting", "hang up", "end call",
+        "salir", "abandonar", "finalizar llamada", "colgar"
+    ]
 }
 
 public enum QMeetingSurfaceClassifier {
@@ -60,26 +154,10 @@ public enum QMeetingSurfaceClassifier {
         windowTitles: [String],
         kind: QMeetingSurfaceKind
     ) -> QState? {
-        let buttons = buttonLabels.map(normalized)
+        let buttons = buttonLabels.map(QMeetingControlVocabulary.normalized)
         let titles = windowTitles.map(normalized)
-        let unmuteTerms = [
-            "unmute", "turn on microphone", "unmute my audio", "activar sonido",
-            "activar microfono", "reactivar audio"
-        ]
-        let muteTerms = [
-            "mute", "turn off microphone", "mute my audio", "silenciar",
-            "desactivar microfono"
-        ]
-        let leaveTerms = [
-            "leave", "leave call", "leave meeting", "hang up", "end call",
-            "salir", "abandonar", "finalizar llamada", "colgar"
-        ]
-        let hasUnmute = buttons.contains { label in unmuteTerms.contains { label.contains($0) } }
-        let hasMute = buttons.contains { label in
-            !unmuteTerms.contains(where: { label.contains($0) }) &&
-                muteTerms.contains(where: { label.contains($0) })
-        }
-        let hasLeave = buttons.contains { label in leaveTerms.contains { label.contains($0) } }
+        let microphoneState = QMeetingControlVocabulary.microphoneState(buttonLabels: buttons)
+        let hasLeave = QMeetingControlVocabulary.hasLeaveControl(buttonLabels: buttons)
         let recognizableWindow: Bool = switch kind {
         case .zoom:
             titles.contains { $0.contains("zoom meeting") || $0.contains("zoom webinar") }
@@ -88,8 +166,11 @@ public enum QMeetingSurfaceClassifier {
         case .googleMeet:
             titles.contains { $0.contains("google meet") || $0.contains("meet -") }
         }
-        guard (hasMute || hasUnmute) && (hasLeave || recognizableWindow) else { return nil }
-        return hasUnmute ? .muted : .meeting
+        let hasMeetingIdentity = kind == .googleMeet
+            ? recognizableWindow
+            : (hasLeave || recognizableWindow)
+        guard microphoneState != .unknown, hasMeetingIdentity else { return nil }
+        return microphoneState.qState
     }
 
     /// New Teams renders its call controls inside Edge WebView content that is
@@ -101,9 +182,12 @@ public enum QMeetingSurfaceClassifier {
         windowTitles.map(normalized).contains { title in
             title.contains("meeting compact view") ||
                 title.contains("meeting | microsoft teams") ||
+                title.contains("meeting | microsoft teams classic") ||
                 title.contains("call | microsoft teams") ||
                 title.contains("reunion | microsoft teams") ||
-                title.contains("llamada | microsoft teams")
+                title.contains("llamada | microsoft teams") ||
+                ((title.contains("meeting") || title.contains("reunion") || title.contains("llamada")) &&
+                    title.hasSuffix("| microsoft teams"))
         }
     }
 

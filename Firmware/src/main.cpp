@@ -36,7 +36,7 @@ constexpr uint8_t kConnectedPulseCount = 3;
 constexpr uint32_t kAppHeartbeatTimeoutMs = 8000;
 constexpr uint32_t kAppChallengeIntervalMs = 2000;
 constexpr uint32_t kAppChallengeGraceMs = 30000;
-constexpr char kFirmwareVersion[] = "0.2.2";
+constexpr char kFirmwareVersion[] = "0.2.3";
 
 enum Animation : uint8_t {
   Solid = 0,
@@ -90,7 +90,7 @@ size_t serialLength = 0;
 bool rawButtonDown = false;
 bool stableButtonDown = false;
 bool longPressSent = false;
-bool shortPressPending = false;
+uint8_t shortPressCount = 0;
 uint32_t rawButtonChangedAt = 0;
 uint32_t pressStartedAt = 0;
 uint32_t shortPressReleasedAt = 0;
@@ -390,13 +390,16 @@ void serviceButton(uint32_t now) {
       if (longPressSent) {
         emitButton("long-release");
       } else {
-        if (shortPressPending &&
+        if (shortPressCount > 0 &&
             static_cast<uint32_t>(now - shortPressReleasedAt) <= kDoublePressMs) {
-          shortPressPending = false;
-          emitButton("double");
+          shortPressCount++;
         } else {
-          shortPressPending = true;
-          shortPressReleasedAt = now;
+          shortPressCount = 1;
+        }
+        shortPressReleasedAt = now;
+        if (shortPressCount >= 3) {
+          shortPressCount = 0;
+          emitButton("triple");
         }
       }
     }
@@ -405,14 +408,15 @@ void serviceButton(uint32_t now) {
   if (stableButtonDown && !longPressSent &&
       static_cast<uint32_t>(now - pressStartedAt) >= kLongPressMs) {
     longPressSent = true;
-    shortPressPending = false;
+    shortPressCount = 0;
     emitButton("long");
   }
 
-  if (shortPressPending && !stableButtonDown &&
+  if (shortPressCount > 0 && !stableButtonDown &&
       static_cast<uint32_t>(now - shortPressReleasedAt) > kDoublePressMs) {
-    shortPressPending = false;
-    emitButton("single");
+    const uint8_t completedPresses = shortPressCount;
+    shortPressCount = 0;
+    emitButton(completedPresses == 1 ? "single" : "double");
   }
 }
 

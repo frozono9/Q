@@ -154,6 +154,16 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
 
     private func showGesturePopover(mode: String, state: String) {
         guard let button = statusItem?.button else { return }
+        // The open Q popover is already the clearest confirmation of a button
+        // gesture: its mode and state update live. Never stack the compact
+        // gesture confirmation on top of the full controls.
+        guard !popover.isShown else {
+            gestureDismissTask?.cancel()
+            if gesturePopover.isShown {
+                gesturePopover.performClose(nil)
+            }
+            return
+        }
         gestureDismissTask?.cancel()
         gesturePopover.contentSize = NSSize(width: 210, height: 68)
         gesturePopover.contentViewController = NSHostingController(

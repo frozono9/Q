@@ -51,49 +51,61 @@ struct QMenuBarView: View {
         HStack(spacing: 10) {
             QBrandMark(size: 24, lineWidth: 2.7)
 
-            Menu {
-                ForEach(QMode.primaryModes) { mode in
-                    Button {
-                        model.selectMode(mode)
-                    } label: {
-                        Label(mode.name, systemImage: mode.systemImage)
+            if showingSettings || showingSetup {
+                Text(showingSetup ? "Set up Q" : "Settings")
+                    .font(.headline.weight(.semibold))
+            } else {
+                Menu {
+                    ForEach(QMode.primaryModes) { mode in
+                        Button {
+                            model.selectMode(mode)
+                        } label: {
+                            Label(mode.name, systemImage: mode.systemImage)
+                        }
                     }
-                }
-                if !model.customModes.isEmpty {
-                    Divider()
-                    Section("Custom modes") {
-                        ForEach(model.customModes) { mode in
-                            Button {
-                                model.selectCustomMode(mode.id)
-                            } label: {
-                                Label(mode.name, systemImage: mode.systemImage)
+                    if !model.customModes.isEmpty {
+                        Divider()
+                        Section("Custom modes") {
+                            ForEach(model.customModes) { mode in
+                                Button {
+                                    model.selectCustomMode(mode.id)
+                                } label: {
+                                    Label(mode.name, systemImage: mode.systemImage)
+                                }
                             }
                         }
                     }
-                }
-                Divider()
-                Button {
-                    model.openCustomModeEditor()
+                    Divider()
+                    Button {
+                        model.openCustomModeEditor()
+                    } label: {
+                        Label("New Custom Mode…", systemImage: "plus")
+                    }
+                    Button {
+                        model.importCustomMode()
+                    } label: {
+                        Label("Import Custom Mode…", systemImage: "square.and.arrow.down")
+                    }
                 } label: {
-                    Label("New Custom Mode…", systemImage: "plus")
+                    Text(model.currentModeName)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
                 }
-                Button {
-                    model.importCustomMode()
-                } label: {
-                    Label("Import Custom Mode…", systemImage: "square.and.arrow.down")
-                }
-            } label: {
-                Text(model.currentModeName)
-                    .font(.headline.weight(.semibold))
-                    .lineLimit(1)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Change Q mode")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Change Q mode")
 
             Spacer(minLength: 12)
 
-            connectionIndicators
+            if showingSettings || showingSetup {
+                connectionIndicator(
+                    label: model.isPhysicalDeviceConnected ? model.physicalDeviceName : "No Q",
+                    isActive: model.isPhysicalDeviceConnected
+                )
+            } else {
+                connectionIndicators
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -428,174 +440,215 @@ struct QMenuBarView: View {
 
     private var generalSettings: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Device")
-                            .font(.title3.weight(.semibold))
-                        Text(model.isPhysicalDeviceConnected ? "Your physical Q is ready." : "Connect Q over USB-C.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(model.isPhysicalDeviceConnected ? Color.green : Color.secondary)
-                            .frame(width: 7, height: 7)
-                        Text(model.isPhysicalDeviceConnected ? "Connected" : "Not connected")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 20) {
+                settingsSection(title: "Your Q", systemImage: "circle.hexagongrid.fill") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.isPhysicalDeviceConnected ? "Connected" : "Not connected")
+                                    .font(.callout.weight(.medium))
+                                Text(model.isPhysicalDeviceConnected ? "Ready on this Mac" : "Connect Q over USB-C")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Circle()
+                                .fill(model.isPhysicalDeviceConnected ? Color.green : Color.secondary)
+                                .frame(width: 8, height: 8)
+                        }
+
+                        if model.isPhysicalDeviceConnected {
+                            Divider()
+                            HStack {
+                                Text("Name")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                TextField("Q", text: $deviceNameDraft)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(maxWidth: 135)
+                                    .onSubmit { model.setPhysicalDeviceName(deviceNameDraft) }
+                                if deviceNameDraft != model.physicalDeviceName {
+                                    Button("Save") { model.setPhysicalDeviceName(deviceNameDraft) }
+                                        .buttonStyle(.link)
+                                }
+                            }
+
+                            Divider()
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack {
+                                    Text("Brightness")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(Int((model.deviceBrightness * 100).rounded()))%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Slider(
+                                    value: Binding(
+                                        get: { model.deviceBrightness },
+                                        set: { model.setDeviceBrightness($0) }
+                                    ),
+                                    in: 0.1...1,
+                                    step: 0.05
+                                )
+                                .accessibilityLabel("Device brightness")
+                            }
+                        }
+
+                        if model.isFirmwareUpdateAvailable || model.firmwareUpdateState != .idle {
+                            firmwareUpdateCard
+                        } else if model.isPhysicalDeviceConnected {
+                            Divider()
+                            deviceDetailRow("Firmware", value: model.firmwareStatusLabel)
+                        }
                     }
                 }
 
-                if model.isPhysicalDeviceConnected {
-                    VStack(spacing: 7) {
-                        HStack {
-                            Text("Name").foregroundStyle(.secondary)
-                            Spacer()
-                            TextField("Q", text: $deviceNameDraft)
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: 150)
-                                .onSubmit { model.setPhysicalDeviceName(deviceNameDraft) }
-                            Button("Save") { model.setPhysicalDeviceName(deviceNameDraft) }
-                                .buttonStyle(.link)
+                settingsSection(title: "Connected apps", systemImage: "link") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        integrationStatusRow(
+                            name: "Codex",
+                            status: model.isCodexIntegrationAvailable ? "Ready" : "Not detected",
+                            available: model.isCodexIntegrationAvailable
+                        )
+                        integrationStatusRow(
+                            name: "Accessibility",
+                            status: model.isAccessibilityAuthorized ? "Granted" : "Required",
+                            available: model.isAccessibilityAuthorized
+                        )
+                        if !model.isAccessibilityAuthorized {
+                            Button("Grant Accessibility…") {
+                                model.requestAccessibilityAuthorization()
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.caption)
                         }
-                        .font(.caption)
-                        deviceDetailRow("Identifier", value: model.physicalDeviceIdentifier ?? "Q")
-                        deviceDetailRow("Firmware", value: model.physicalFirmwareVersion ?? "Legacy")
+                        Divider()
+                        HStack {
+                            Text("Meeting control")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            meetingProviderPicker
+                        }
+                        meetingIntegrationRow(.discord)
+                        meetingIntegrationRow(.zoom)
+                        meetingIntegrationRow(.googleMeet)
+                        meetingIntegrationRow(.teams)
+                        Text("Auto follows the active call. Pin a provider only when you need to override it.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                settingsSection(title: "Custom modes", systemImage: "slider.horizontal.3") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.customModes.isEmpty ? "Create your own mode" : "\(model.customModes.count) saved")
+                                    .font(.callout.weight(.medium))
+                                Text("Define lights, states, and button actions.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(model.customModes.isEmpty ? "Create…" : "Manage…") {
+                                model.openCustomModeEditor(model.selectedCustomModeID)
+                            }
+                        }
+                        Button("Import .qmode…") { model.importCustomMode() }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
+                }
+
+                settingsSection(title: "Diagnostics", systemImage: "stethoscope") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Button(model.isRunningLightTest ? "Testing…" : "Test lights") {
+                                model.runLightTest()
+                            }
+                            .disabled(!model.isPhysicalDeviceConnected || model.isRunningLightTest)
+
+                            Button(model.isAwaitingButtonTest ? "Press Q now…" : "Test button") {
+                                model.beginButtonTest()
+                            }
+                            .disabled(!model.isPhysicalDeviceConnected || model.isAwaitingButtonTest)
+                        }
+                        .buttonStyle(.bordered)
+
+                        if let result = model.buttonTestResult {
+                            Label(result, systemImage: result == "No press detected" ? "exclamationmark.circle" : "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(result == "No press detected" ? Color.secondary : Color.green)
+                        } else if model.isAwaitingButtonTest {
+                            Text("Press the physical Q button now.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Divider()
+                        deviceDetailRow("Identifier", value: model.physicalDeviceIdentifier ?? "—")
+                        deviceDetailRow("Firmware", value: model.physicalFirmwareVersion ?? "—")
                         deviceDetailRow(
                             "Port",
                             value: model.physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—"
                         )
-                    }
-                }
-
-                if model.isPhysicalDeviceConnected || model.firmwareUpdateState != .idle {
-                    firmwareUpdateCard
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Brightness")
-                            .font(.callout.weight(.medium))
-                        Spacer()
-                        Text("\(Int((model.deviceBrightness * 100).rounded()))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { model.deviceBrightness },
-                            set: { model.setDeviceBrightness($0) }
-                        ),
-                        in: 0.1...1,
-                        step: 0.05
-                    )
-                    .accessibilityLabel("Device brightness")
-                }
-
-                HStack(spacing: 10) {
-                    Button(model.isRunningLightTest ? "Testing…" : "Test lights") {
-                        model.runLightTest()
-                    }
-                    .disabled(!model.isPhysicalDeviceConnected || model.isRunningLightTest)
-
-                    Button(model.isAwaitingButtonTest ? "Press Q now…" : "Test button") {
-                        model.beginButtonTest()
-                    }
-                    .disabled(!model.isPhysicalDeviceConnected || model.isAwaitingButtonTest)
-                }
-                .buttonStyle(.bordered)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    if let result = model.buttonTestResult {
-                        Label(result, systemImage: result == "No press detected" ? "exclamationmark.circle" : "checkmark.circle.fill")
-                            .foregroundStyle(result == "No press detected" ? Color.secondary : Color.green)
-                    } else if model.isAwaitingButtonTest {
-                        Text("Single, double, or long-press the physical button.")
-                    }
-                }
-                .font(.caption2)
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Meeting integrations")
-                        .font(.title3.weight(.semibold))
-                    HStack {
-                        Text("Control provider")
-                            .font(.caption)
-                        Spacer()
-                        meetingProviderPicker
-                    }
-                    meetingIntegrationRow("Discord", available: model.isDiscordIntegrationAvailable)
-                    meetingIntegrationRow("Zoom", available: model.isZoomIntegrationAvailable)
-                    meetingIntegrationRow("Google Meet", available: model.isGoogleMeetIntegrationAvailable)
-                    meetingIntegrationRow("Microsoft Teams", available: model.isTeamsIntegrationAvailable)
-                    Text("Auto follows the active call. Choose a provider to pin button control when several meeting apps are open.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Support")
-                        .font(.title3.weight(.semibold))
-                    Button("Run setup check…") {
-                        showingSettings = false
-                        showingSetup = true
-                    }
-                    Button("Copy diagnostic report") {
-                        model.copyDiagnosticReport()
-                    }
-                    .help("Copies device and integration status only—never chat content")
-                    Text("The report contains technical status only, never chats, prompts, or private content.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Button presses")
-                        .font(.title3.weight(.semibold))
-                    Text("Choose what the physical Q button does for each gesture.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                gestureSetting("Single press", event: .singlePress, selection: model.gestureSettings.singlePress)
-                gestureSetting("Double press", event: .doublePress, selection: model.gestureSettings.doublePress)
-                gestureSetting("Long press", event: .longPress, selection: model.gestureSettings.longPress)
-
-                Divider()
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Custom modes").font(.callout.weight(.medium))
-                        Text(model.customModes.isEmpty ? "Create your own Q behavior." : "\(model.customModes.count) saved")
+                        Divider()
+                        HStack {
+                            Button("Setup check…") {
+                                showingSettings = false
+                                showingSetup = true
+                            }
+                            Button("Copy report") { model.copyDiagnosticReport() }
+                                .help("Copies technical status only—never chat content")
+                        }
+                        .buttonStyle(.bordered)
+                        Text("Reports contain technical status only, never chats or prompts.")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button(model.customModes.isEmpty ? "Create…" : "Manage…") {
-                        model.openCustomModeEditor(model.selectedCustomModeID)
+                            .foregroundStyle(.tertiary)
                     }
                 }
-
-                Button("Import .qmode…") {
-                    model.importCustomMode()
-                }
-                .buttonStyle(.link)
-
-                Text("Every button press shows the resulting mode and state for five seconds.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
+        }
+    }
+
+    private func settingsSection<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            content()
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Color.primary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+        }
+    }
+
+    private func integrationStatusRow(name: String, status: String, available: Bool) -> some View {
+        HStack {
+            Circle()
+                .fill(available ? Color.green : Color.secondary.opacity(0.5))
+                .frame(width: 7, height: 7)
+            Text(name)
+                .font(.caption)
+            Spacer()
+            Text(status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 
@@ -651,7 +704,7 @@ struct QMenuBarView: View {
                 )
                 setupRow(
                     title: "Google Meet",
-                    detail: model.isGoogleMeetIntegrationAvailable ? "Browser detected" : "Optional · open Meet in a browser",
+                    detail: model.isGoogleMeetIntegrationAvailable ? "Call detected" : "Optional · no Meet call detected",
                     ready: model.isGoogleMeetIntegrationAvailable,
                     optional: true
                 )
@@ -755,14 +808,15 @@ struct QMenuBarView: View {
         .font(.caption)
     }
 
-    private func meetingIntegrationRow(_ name: String, available: Bool) -> some View {
-        HStack {
+    private func meetingIntegrationRow(_ provider: QMeetingProvider) -> some View {
+        let available = model.isMeetingProviderAvailable(provider)
+        return HStack {
             Circle()
                 .fill(available ? Color.green : Color.secondary.opacity(0.5))
                 .frame(width: 7, height: 7)
-            Text(name).font(.caption)
+            Text(provider.name).font(.caption)
             Spacer()
-            Text(available ? "Detected" : "Not running")
+            Text(model.meetingProviderStatus(provider))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -789,27 +843,6 @@ struct QMenuBarView: View {
         return model.isMeetingProviderAvailable(provider)
             ? "Button actions are pinned to \(provider.name)."
             : "Open \(provider.name) to enable its button actions."
-    }
-
-    private func gestureSetting(
-        _ title: String,
-        event: QButtonEvent,
-        selection: QGestureAction
-    ) -> some View {
-        HStack {
-            Text(title).font(.callout.weight(.medium))
-            Spacer()
-            Picker(title, selection: Binding(
-                get: { selection },
-                set: { model.setGestureAction($0, for: event) }
-            )) {
-                ForEach(QGestureAction.allCases) { action in
-                    Text(action.name).tag(action)
-                }
-            }
-            .labelsHidden()
-            .frame(width: 145)
-        }
     }
 
     private var stateColumns: [GridItem] {

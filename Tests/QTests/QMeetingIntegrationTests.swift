@@ -70,9 +70,46 @@ struct QMeetingArbiterTests {
         ) == .muted)
     }
 
+    @Test func classifierAndButtonActionsShareTheSameNormalizedVocabulary() {
+        let labels = ["Activar micrófono", "Salir de la llamada"]
+        #expect(QMeetingControlVocabulary.microphoneState(buttonLabels: labels) == .muted)
+        #expect(QMeetingControlVocabulary.buttonPerformsDesiredAction(
+            label: "Activar micrófono",
+            shouldMute: false
+        ))
+        #expect(QMeetingControlVocabulary.buttonPerformsDesiredAction(
+            label: "Desactivar micrófono",
+            shouldMute: true
+        ))
+    }
+
+    @Test func unrelatedMuteButtonsAreNotClassifiedAsMicrophoneControls() {
+        #expect(QMeetingControlVocabulary.microphoneState(
+            buttonLabels: ["Mute notifications", "Silenciar notificaciones"]
+        ) == .unknown)
+    }
+
+    @Test func persistentMuteToggleUsesItsAccessibilityValue() {
+        #expect(QMeetingControlVocabulary.microphoneToggleState(
+            label: "Mute",
+            isOn: true
+        ) == .muted)
+        #expect(QMeetingControlVocabulary.microphoneToggleState(
+            label: "Mute",
+            isOn: false
+        ) == .unmuted)
+        #expect(QMeetingControlVocabulary.microphoneToggleState(
+            label: "Mute notifications",
+            isOn: true
+        ) == .unknown)
+    }
+
     @Test func opaqueNewTeamsCallWindowIsRecognizedWithoutGuessingFromOrdinaryChat() {
         #expect(QMeetingSurfaceClassifier.hasTeamsMeetingWindow(
             windowTitles: ["Meeting compact view | Alex | Microsoft Teams"]
+        ))
+        #expect(QMeetingSurfaceClassifier.hasTeamsMeetingWindow(
+            windowTitles: ["Project sync meeting | Microsoft Teams"]
         ))
         #expect(QMeetingSurfaceClassifier.hasTeamsMeetingWindow(
             windowTitles: ["Chat | Alex | Microsoft Teams"]
