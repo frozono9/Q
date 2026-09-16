@@ -5,6 +5,8 @@ struct QMenuBarView: View {
     @ObservedObject var model: QAppModel
     @State private var editingDuration = false
     @State private var showingSettings = false
+    @State private var showingSetup = false
+    @AppStorage(QAppModel.setupCompletedKey) private var setupCompleted = false
     @ObservedObject private var device: VirtualQDevice
 
     init(model: QAppModel) {
@@ -16,7 +18,9 @@ struct QMenuBarView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            if showingSettings {
+            if showingSetup {
+                setupView
+            } else if showingSettings {
                 generalSettings
             } else {
                 currentStatus
@@ -31,8 +35,11 @@ struct QMenuBarView: View {
         // The normal surface should hug its content. Settings needs an explicit
         // height because its ScrollView otherwise reports a tiny intrinsic size
         // during the first in-place transition.
-        .frame(width: 320, height: showingSettings ? 470 : nil, alignment: .top)
+        .frame(width: 320, height: (showingSettings || showingSetup) ? 500 : nil, alignment: .top)
         .onChange(of: model.selectedMode) { _, _ in editingDuration = false }
+        .onAppear {
+            if !setupCompleted { showingSetup = true }
+        }
     }
 
     private var header: some View {
@@ -355,9 +362,16 @@ struct QMenuBarView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             Button {
-                showingSettings.toggle()
+                if showingSetup {
+                    showingSetup = false
+                } else {
+                    showingSettings.toggle()
+                }
             } label: {
-                Label(showingSettings ? "Done" : "Settings", systemImage: showingSettings ? "checkmark" : "gearshape")
+                Label(
+                    (showingSettings || showingSetup) ? "Done" : "Settings",
+                    systemImage: (showingSettings || showingSetup) ? "checkmark" : "gearshape"
+                )
             }
             .buttonStyle(.plain)
 
@@ -413,6 +427,10 @@ struct QMenuBarView: View {
                     }
                 }
 
+                if model.isPhysicalDeviceConnected || model.firmwareUpdateState != .idle {
+                    firmwareUpdateCard
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Brightness")
@@ -458,6 +476,24 @@ struct QMenuBarView: View {
 
                 Divider()
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Support")
+                        .font(.title3.weight(.semibold))
+                    Button("Run setup check…") {
+                        showingSettings = false
+                        showingSetup = true
+                    }
+                    Button("Copy diagnostic report") {
+                        model.copyDiagnosticReport()
+                    }
+                    .help("Copies device and integration status only—never chat content")
+                    Text("The report contains technical status only, never chats, prompts, or private content.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Divider()
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Button presses")
                         .font(.title3.weight(.semibold))
@@ -497,6 +533,131 @@ struct QMenuBarView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
+        }
+    }
+
+    private var setupView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Set up Q")
+                        .font(.title2.weight(.semibold))
+                    Text("A quick hardware and integration check before you start.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                setupRow(
+                    title: "Physical Q",
+                    detail: model.isPhysicalDeviceConnected ? "Connected" : "Connect it over USB-C",
+                    ready: model.isPhysicalDeviceConnected
+                )
+                setupRow(
+                    title: "Firmware",
+                    detail: model.firmwareStatusLabel,
+                    ready: model.isPhysicalDeviceConnected && !model.isFirmwareUpdateAvailable
+                )
+                if model.isFirmwareUpdateAvailable || model.firmwareUpdateState != .idle {
+                    firmwareUpdateCard
+                }
+                setupRow(
+                    title: "Accessibility",
+                    detail: model.isAccessibilityAuthorized ? "Granted" : "Needed for Codex and Discord controls",
+                    ready: model.isAccessibilityAuthorized
+                )
+                if !model.isAccessibilityAuthorized {
+                    Button("Grant Accessibility…") { model.requestAccessibilityAuthorization() }
+                        .buttonStyle(.bordered)
+                }
+                setupRow(
+                    title: "Codex",
+                    detail: model.isCodexIntegrationAvailable ? "Detected" : "Open Codex to connect it",
+                    ready: model.isCodexIntegrationAvailable
+                )
+                setupRow(
+                    title: "Discord",
+                    detail: model.isDiscordIntegrationAvailable ? "Detected" : "Optional · open Discord to test",
+                    ready: model.isDiscordIntegrationAvailable,
+                    optional: true
+                )
+
+                HStack(spacing: 8) {
+                    Button(model.isRunningLightTest ? "Testing…" : "Test lights") { model.runLightTest() }
+                        .disabled(!model.isPhysicalDeviceConnected || model.isRunningLightTest)
+                    Button(model.isAwaitingButtonTest ? "Press Q now…" : "Test button") { model.beginButtonTest() }
+                        .disabled(!model.isPhysicalDeviceConnected || model.isAwaitingButtonTest)
+                }
+                .buttonStyle(.bordered)
+
+                if let result = model.buttonTestResult {
+                    Text(result).font(.caption).foregroundStyle(.secondary)
+                }
+
+                Button("Finish setup") {
+                    setupCompleted = true
+                    showingSetup = false
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                Text("Q never copies chat content into diagnostics. Microphone access belongs to Codex because Q only triggers Codex's own Dictate control.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+        }
+    }
+
+    private func setupRow(title: String, detail: String, ready: Bool, optional: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: ready ? "checkmark.circle.fill" : (optional ? "circle.dashed" : "exclamationmark.circle"))
+                .foregroundStyle(ready ? Color.green : Color.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.medium))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var firmwareUpdateCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Firmware").font(.callout.weight(.medium))
+                    Text(firmwareUpdateMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if model.firmwareUpdateState.isRunning { ProgressView().controlSize(.small) }
+            }
+            if let progress = model.firmwareUpdateProgress,
+               model.firmwareUpdateState.isRunning {
+                ProgressView(value: progress)
+            }
+            if model.isFirmwareUpdateAvailable,
+               !model.firmwareUpdateState.isRunning {
+                Button("Update to \(QFirmwareUpdater.currentVersion)") { model.updateFirmware() }
+                    .buttonStyle(.borderedProminent)
+            }
+            if case let .failed(message) = model.firmwareUpdateState {
+                Text(message).font(.caption2).foregroundStyle(.red).textSelection(.enabled)
+                Button("Retry") { model.updateFirmware() }.buttonStyle(.bordered)
+            }
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private var firmwareUpdateMessage: String {
+        switch model.firmwareUpdateState {
+        case .idle: model.firmwareStatusLabel
+        case .preparing: "Preparing Q…"
+        case .flashing: "Installing safely. Keep Q connected."
+        case .reconnecting: "Restarting and verifying Q…"
+        case .succeeded: "Updated and verified · \(QFirmwareUpdater.currentVersion)"
+        case .failed: "Update could not be completed. Q can be retried."
         }
     }
 

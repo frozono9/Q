@@ -10,6 +10,8 @@ public enum QButtonAction: Codable, Equatable, Sendable {
     case toggleFocusMode
     case lockMac
     case focusSource
+    case focusMostRecentCodexChat
+    case startCodexDictation
     case focusHighestPrioritySource
     case focusFailedSource
     case cycleActiveSources

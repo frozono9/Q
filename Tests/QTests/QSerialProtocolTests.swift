@@ -49,6 +49,7 @@ struct QSerialProtocolTests {
         #expect(QSerialProtocol.buttonEvent(from: "B|single\r\n") == .singlePress)
         #expect(QSerialProtocol.buttonEvent(from: "B|double") == .doublePress)
         #expect(QSerialProtocol.buttonEvent(from: "B|long") == .longPress)
+        #expect(QSerialProtocol.buttonEvent(from: "B|long-release") == .longPressEnded)
         #expect(QSerialProtocol.buttonEvent(from: "Q|1") == nil)
     }
 }

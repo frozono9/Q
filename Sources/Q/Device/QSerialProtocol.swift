@@ -55,6 +55,7 @@ public enum QSerialProtocol {
         case "B|single": .singlePress
         case "B|double": .doublePress
         case "B|long": .longPress
+        case "B|long-release": .longPressEnded
         default: nil
         }
     }

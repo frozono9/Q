@@ -6,10 +6,27 @@ integration, animation, or button action.
 
 It describes the repository as it exists today:
 
-- macOS app version: **0.1.0**
-- firmware version: **0.2.1**
+- macOS app version: **0.2.2**
+- firmware version: **0.2.2**
 - serial protocol version: **1**
 - target hardware: **Seeed Studio XIAO ESP32-C3 + Q production PCB**
+
+### Setup, diagnostics, and firmware lifecycle
+
+First run is a product check rather than a blank preferences page. It reports
+physical-device handshake, firmware compatibility, Accessibility, Codex,
+optional Discord, plus interactive LED and button tests. The check is always
+available again from Settings.
+
+The support report is intentionally metadata-only. Never add prompt bodies,
+conversation names, task contents, Discord messages, or other user content to
+`QAppModel.diagnosticReport`.
+
+Firmware releases are embedded in `Resources/Updater` as a complete image for
+offset `0x0`. The updater may target only the serial path that already passed
+Q's handshake. It pauses normal serial reconnection, flashes non-interactively,
+reconnects, and validates the reported firmware version. Never report success
+before that handshake.
 
 ## 1. What Q is
 
@@ -175,7 +192,7 @@ the source repository.
 7. Q's popover opens automatically after the device handshake. Open
    **Settings** and confirm:
    - status is Connected;
-   - firmware is `0.2.1`;
+   - firmware is `0.2.2`;
    - a unique ID beginning with `Q-` is displayed;
    - Test lights cycles red, green, blue, and white;
    - Test button recognizes a physical press.
@@ -193,12 +210,17 @@ state UI. Codex activity owns the LEDs.
 
 | State | LEDs | Button |
 | --- | --- | --- |
-| Idle | Green chase | Open/focus Codex |
+| Idle | Green chase | Open the most recent Codex conversation |
 | One working task | Amber chase across all three LEDs | Open that task |
 | Two or three relevant tasks | One slot per task | Open highest-priority task |
 | Needs input/permission | Blue fade | Open the exact task |
 | Done | Green flash then solid | Open result |
 | Error | Red blink | Open failed task |
+
+In every AI Agents state, long press focuses the current Codex task and holds
+Codex's built-in `composer.startDictation` shortcut. Releasing Q releases that
+shortcut so Codex inserts the transcript. This uses the same macOS Accessibility
+grant as Discord control and never invokes macOS system Dictation.
 
 For multiple tasks, each task occupies one LED:
 
@@ -303,10 +325,11 @@ Global assignments are configured under Settings:
 | --- | --- | --- |
 | Single press | Contextual action | Contextual, next mode, next state, show status, none |
 | Double press | Next mode | Contextual, next mode, next state, show status, none |
-| Long press | None | Contextual, next mode, next state, show status, none |
+| Long press | Contextual action | Contextual, next mode, next state, show status, none |
 
-Every recognized gesture shows a small mode/state confirmation for five seconds,
-including gestures whose assignment is Show status or None.
+Every recognized gesture normally shows a small mode/state confirmation for five
+seconds, including gestures whose assignment is Show status or None. The AI Agents
+dictation hold stays silent so recording starts immediately and unobstructed.
 
 Externally managed modes reject manual state cycling. This prevents the app from
 claiming an AI task or meeting is in a state that its source did not report.
@@ -510,13 +533,14 @@ Animation codes must remain synchronized between Swift and firmware:
 
 | Message | Meaning |
 | --- | --- |
-| `Q|1|0.2.1|Q-<chip-id>` | Identity/handshake response |
+| `Q|1|0.2.2|Q-<chip-id>` | Identity/handshake response |
 | `A|scene` | Scene accepted |
 | `E|scene` | Malformed scene |
 | `E|length` | Input line overflow |
 | `B|single` | Single press |
 | `B|double` | Double press |
 | `B|long` | Long press |
+| `B|long-release` | Release after a long press |
 | `C|heartbeat` | Firmware asks a potentially delayed app to reply now |
 
 ### Connection lifecycle
@@ -876,8 +900,9 @@ Check, in order:
 
 ### Random red flash
 
-Firmware 0.2.1 includes the challenge/response grace period that fixes transient
-heartbeat misses. Confirm Settings reports 0.2.1. Older firmware should be
+Firmware 0.2.2 includes the challenge/response grace period that fixes transient
+heartbeat misses and reports long-press release for held actions such as Codex
+dictation. Confirm Settings reports 0.2.2. Older firmware should be
 reflashed.
 
 ### Wrong colors or one dead channel

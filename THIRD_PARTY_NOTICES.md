@@ -26,3 +26,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+# Firmware updater
+
+Q bundles `espflash` 4.5.0 from the esp-rs project to install firmware on the
+ESP32-C3. espflash is distributed under the MIT OR Apache-2.0 licenses.
+Source and license: https://github.com/esp-rs/espflash

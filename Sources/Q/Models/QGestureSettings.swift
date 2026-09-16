@@ -28,7 +28,7 @@ public struct QGestureSettings: Codable, Equatable, Sendable {
     public init(
         singlePress: QGestureAction = .contextual,
         doublePress: QGestureAction = .nextMode,
-        longPress: QGestureAction = .none
+        longPress: QGestureAction = .contextual
     ) {
         self.singlePress = singlePress
         self.doublePress = doublePress

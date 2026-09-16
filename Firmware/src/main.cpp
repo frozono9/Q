@@ -36,7 +36,7 @@ constexpr uint8_t kConnectedPulseCount = 3;
 constexpr uint32_t kAppHeartbeatTimeoutMs = 8000;
 constexpr uint32_t kAppChallengeIntervalMs = 2000;
 constexpr uint32_t kAppChallengeGraceMs = 30000;
-constexpr char kFirmwareVersion[] = "0.2.1";
+constexpr char kFirmwareVersion[] = "0.2.2";
 
 enum Animation : uint8_t {
   Solid = 0,
@@ -386,14 +386,18 @@ void serviceButton(uint32_t now) {
     if (stableButtonDown) {
       pressStartedAt = now;
       longPressSent = false;
-    } else if (!longPressSent) {
-      if (shortPressPending &&
-          static_cast<uint32_t>(now - shortPressReleasedAt) <= kDoublePressMs) {
-        shortPressPending = false;
-        emitButton("double");
+    } else {
+      if (longPressSent) {
+        emitButton("long-release");
       } else {
-        shortPressPending = true;
-        shortPressReleasedAt = now;
+        if (shortPressPending &&
+            static_cast<uint32_t>(now - shortPressReleasedAt) <= kDoublePressMs) {
+          shortPressPending = false;
+          emitButton("double");
+        } else {
+          shortPressPending = true;
+          shortPressReleasedAt = now;
+        }
       }
     }
   }

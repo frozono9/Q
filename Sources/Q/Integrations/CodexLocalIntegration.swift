@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import OSLog
 import QCore
@@ -38,12 +39,44 @@ actor CodexSessionScanner {
         return CodexIntegrationSnapshot(sessions: sessions, isAvailable: true)
     }
 
+    func mostRecentSession() -> QAgentSession? {
+        let sessionsDirectory = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/sessions")
+        let files = QCodexSessionDiscovery.recentRolloutFiles(
+            in: sessionsDirectory,
+            activeWithin: .greatestFiniteMagnitude
+        )
+        guard let file = files.max(by: { modificationDate(of: $0) < modificationDate(of: $1) }),
+              let metadata = try? readMetadata(from: file) else {
+            return nil
+        }
+        let modifiedAt = modificationDate(of: file)
+        let projectName = URL(fileURLWithPath: metadata.cwd).lastPathComponent
+        return QAgentSession(
+            id: metadata.id,
+            source: "Codex",
+            displayName: projectName.isEmpty ? "Codex" : projectName,
+            state: .idle,
+            context: [
+                "threadID": metadata.id,
+                "cwd": metadata.cwd,
+                "deepLink": "codex://threads/\(metadata.id)"
+            ],
+            updatedAt: modifiedAt
+        )
+    }
+
     private func recentSessionFiles(in root: URL, now: Date) -> [URL] {
         QCodexSessionDiscovery.recentRolloutFiles(
             in: root,
             now: now,
             activeWithin: activeStaleInterval
         )
+    }
+
+    private func modificationDate(of file: URL) -> Date {
+        (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            ?? .distantPast
     }
 
     private func session(from fileURL: URL, now: Date) -> QAgentSession? {
@@ -247,6 +280,8 @@ final class CodexLocalIntegration {
     private let scanner = CodexSessionScanner()
     private let logger = Logger(subsystem: "app.q", category: "codex-integration")
     private var monitoringTask: Task<Void, Never>?
+    private var dictationStartTask: Task<Void, Never>?
+    private var dictationShortcutIsDown = false
     private var lastSnapshotSignature = ""
 
     func start(onUpdate: @escaping @MainActor @Sendable (CodexIntegrationSnapshot) -> Void) {
@@ -271,11 +306,81 @@ final class CodexLocalIntegration {
     func stop() {
         monitoringTask?.cancel()
         monitoringTask = nil
+        endDictation()
     }
 
     func focus(_ session: QAgentSession?) {
         let deepLink = session?.context["deepLink"] ?? "codex://"
         guard let url = URL(string: deepLink) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func focusMostRecentChat() {
+        Task { @MainActor [weak self, scanner] in
+            let session = await scanner.mostRecentSession()
+            self?.focus(session)
+        }
+    }
+
+    func startDictation(in session: QAgentSession?) {
+        guard AXIsProcessTrusted() else {
+            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            return
+        }
+
+        endDictation()
+        focus(session)
+        dictationStartTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // The firmware reports the long press while the physical button is still down.
+            // Allow the deep link to focus its task, then hold Codex's own shortcut until release.
+            do {
+                try await Task.sleep(for: .milliseconds(120))
+            } catch {
+                return
+            }
+            guard let application = Self.runningCodex else {
+                logger.error("Could not start dictation because Codex is not running")
+                return
+            }
+            application.activate(options: [.activateAllWindows])
+            try? await Task.sleep(for: .milliseconds(40))
+            guard Self.postDictationKey(isDown: true) else {
+                logger.error("Could not invoke Codex's composer.startDictation command")
+                return
+            }
+            dictationShortcutIsDown = true
+            logger.notice("Started Codex composer.startDictation hold")
+        }
+    }
+
+    func endDictation() {
+        dictationStartTask?.cancel()
+        dictationStartTask = nil
+        guard dictationShortcutIsDown else { return }
+        if Self.postDictationKey(isDown: false) {
+            logger.notice("Ended Codex composer.startDictation hold")
+        } else {
+            logger.error("Could not release Codex's composer.startDictation command")
+        }
+        dictationShortcutIsDown = false
+    }
+
+    private static var runningCodex: NSRunningApplication? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first
+    }
+
+    /// Holds Codex's built-in Control-Shift-D binding for `composer.startDictation`.
+    /// This deliberately avoids macOS Dictation and does not depend on window coordinates.
+    private static func postDictationKey(isDown: Bool) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState) else { return false }
+        guard let event = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: 2, // D
+            keyDown: isDown
+        ) else { return false }
+        event.flags = [.maskControl, .maskShift]
+        event.post(tap: .cghidEventTap)
+        return true
     }
 }

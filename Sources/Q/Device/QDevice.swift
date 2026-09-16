@@ -4,6 +4,7 @@ public enum QButtonEvent: String, Codable, Equatable, Sendable {
     case singlePress
     case doublePress
     case longPress
+    case longPressEnded
 }
 
 public enum QDeviceError: LocalizedError, Equatable {

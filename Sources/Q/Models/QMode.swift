@@ -191,17 +191,17 @@ public enum QModeCatalog {
             )
         ],
         defaultStateID: "idle",
-        buttonMapping: QButtonMapping(singlePress: .focusSource),
+        buttonMapping: QButtonMapping(singlePress: .focusSource, longPress: .startCodexDictation),
         contextualButtonRules: [
-            QContextualButtonRule(state: .idle, mapping: QButtonMapping(singlePress: .focusSource)),
-            QContextualButtonRule(state: .working, mapping: QButtonMapping(singlePress: .focusSource)),
-            QContextualButtonRule(state: .custom("multipleAgents"), mapping: QButtonMapping(singlePress: .focusHighestPrioritySource)),
+            QContextualButtonRule(state: .idle, mapping: QButtonMapping(singlePress: .focusMostRecentCodexChat, longPress: .startCodexDictation)),
+            QContextualButtonRule(state: .working, mapping: QButtonMapping(singlePress: .focusSource, longPress: .startCodexDictation)),
+            QContextualButtonRule(state: .custom("multipleAgents"), mapping: QButtonMapping(singlePress: .focusHighestPrioritySource, longPress: .startCodexDictation)),
             QContextualButtonRule(
                 state: .waitingForUser,
-                mapping: QButtonMapping(singlePress: .focusSource)
+                mapping: QButtonMapping(singlePress: .focusSource, longPress: .startCodexDictation)
             ),
-            QContextualButtonRule(state: .done, mapping: QButtonMapping(singlePress: .openResult)),
-            QContextualButtonRule(state: .error, mapping: QButtonMapping(singlePress: .focusFailedSource))
+            QContextualButtonRule(state: .done, mapping: QButtonMapping(singlePress: .openResult, longPress: .startCodexDictation)),
+            QContextualButtonRule(state: .error, mapping: QButtonMapping(singlePress: .focusFailedSource, longPress: .startCodexDictation))
         ],
         supportsMultiSource: true
     )

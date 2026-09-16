@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Combine
 import OSLog
 import QCore
@@ -31,6 +32,9 @@ final class QAppModel: ObservableObject {
     @Published private(set) var isRunningLightTest = false
     @Published private(set) var isAwaitingButtonTest = false
     @Published private(set) var buttonTestResult: String?
+    @Published private(set) var firmwareUpdateState: QFirmwareUpdateState = .idle
+    @Published private(set) var firmwareUpdateProgress: Double?
+    @Published private(set) var firmwareRecoveryPortPath: String?
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -55,11 +59,15 @@ final class QAppModel: ObservableObject {
     private var unscaledScene: QScene?
     private let codexIntegration = CodexLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
+    private let firmwareUpdater = QFirmwareUpdater()
     private let logger = Logger(subsystem: "app.q", category: "application")
     private static let gestureSettingsKey = "QGestureSettings"
+    private static let gestureSettingsVersionKey = "QGestureSettingsVersion"
     private static let customModesKey = "QCustomModes"
     private static let deviceBrightnessKey = "QDeviceBrightness"
     private static let presetReferenceBrightness = 0.85
+
+    static let setupCompletedKey = "QSetupCompleted"
 
     init(
         virtualDevice: VirtualQDevice? = nil,
@@ -70,7 +78,15 @@ final class QAppModel: ObservableObject {
         self.physicalDevice = physicalDevice ?? SerialQDevice()
         self.pomodoroConfiguration = pomodoroConfiguration
         let savedCustomModes = Self.loadCustomModes()
-        gestureSettings = Self.loadGestureSettings()
+        var savedGestureSettings = Self.loadGestureSettings()
+        if UserDefaults.standard.integer(forKey: Self.gestureSettingsVersionKey) < 1 {
+            savedGestureSettings.longPress = .contextual
+            if let data = try? JSONEncoder().encode(savedGestureSettings) {
+                UserDefaults.standard.set(data, forKey: Self.gestureSettingsKey)
+            }
+            UserDefaults.standard.set(1, forKey: Self.gestureSettingsVersionKey)
+        }
+        gestureSettings = savedGestureSettings
         customModes = savedCustomModes
         selectedCustomModeID = savedCustomModes.first?.id
         deviceBrightness = Self.loadDeviceBrightness()
@@ -128,6 +144,101 @@ final class QAppModel: ObservableObject {
             )
         }
         return QModeCatalog.preset(for: selectedMode)
+    }
+
+    var isAccessibilityAuthorized: Bool { AXIsProcessTrusted() }
+
+    var isFirmwareUpdateAvailable: Bool {
+        guard isPhysicalDeviceConnected else { return false }
+        guard let physicalFirmwareVersion else { return true }
+        return physicalFirmwareVersion.compare(
+            QFirmwareUpdater.currentVersion,
+            options: .numeric
+        ) == .orderedAscending
+    }
+
+    var firmwareStatusLabel: String {
+        guard isPhysicalDeviceConnected else { return "Connect Q to check" }
+        guard let physicalFirmwareVersion else { return "Legacy firmware" }
+        return isFirmwareUpdateAvailable
+            ? "Update available · \(QFirmwareUpdater.currentVersion)"
+            : "Up to date · \(physicalFirmwareVersion)"
+    }
+
+    var diagnosticReport: String {
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development"
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        return """
+        Q Diagnostic Report
+        Generated: \(ISO8601DateFormatter().string(from: Date()))
+        App: \(appVersion) (\(build))
+        macOS: \(os)
+        Q connected: \(isPhysicalDeviceConnected ? "yes" : "no")
+        Device: \(physicalDeviceIdentifier ?? "unavailable")
+        Firmware: \(physicalFirmwareVersion ?? "unavailable")
+        Expected firmware: \(QFirmwareUpdater.currentVersion)
+        Serial port: \(physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "unavailable")
+        Accessibility: \(isAccessibilityAuthorized ? "granted" : "not granted")
+        Codex detected: \(isCodexIntegrationAvailable ? "yes" : "no")
+        Discord detected: \(isDiscordIntegrationAvailable ? "yes" : "no")
+        Discord control: \(isDiscordControlAuthorized ? "available" : "not available")
+        Mode: \(currentModeName)
+        State: \(selectedStateID)
+        """
+    }
+
+    func requestAccessibilityAuthorization() {
+        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        objectWillChange.send()
+    }
+
+    func copyDiagnosticReport() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(diagnosticReport, forType: .string)
+    }
+
+    func updateFirmware() {
+        guard !firmwareUpdateState.isRunning,
+              let portPath = physicalPortPath ?? firmwareRecoveryPortPath else { return }
+        firmwareRecoveryPortPath = portPath
+        firmwareUpdateState = .preparing
+        firmwareUpdateProgress = nil
+        Task { [weak self] in
+            guard let self else { return }
+            await physicalDevice.disconnect()
+            try? await Task.sleep(for: .milliseconds(500))
+            do {
+                firmwareUpdateState = .flashing(progress: nil)
+                try await firmwareUpdater.flash(portPath: portPath) { progress in
+                    Task { @MainActor [weak self] in
+                        self?.firmwareUpdateProgress = progress
+                        self?.firmwareUpdateState = .flashing(progress: progress)
+                    }
+                }
+                firmwareUpdateState = .reconnecting
+                var verified = false
+                for _ in 0..<12 {
+                    try? await Task.sleep(for: .seconds(1))
+                    do {
+                        try await physicalDevice.connect()
+                        verified = physicalDevice.firmwareVersion == QFirmwareUpdater.currentVersion
+                        if verified { break }
+                        await physicalDevice.disconnect()
+                    } catch { }
+                }
+                guard verified else {
+                    throw QFirmwareUpdater.UpdateError.processFailed(
+                        "Q was flashed but did not reconnect with the expected version. Unplug it, reconnect it, and retry."
+                    )
+                }
+                try? await physicalDevice.apply(scene: virtualDevice.currentScene)
+                firmwareUpdateState = .succeeded
+                firmwareRecoveryPortPath = nil
+            } catch {
+                firmwareUpdateState = .failed(error.localizedDescription)
+            }
+        }
     }
 
     var activeCustomMode: QCustomModeDefinition? {
@@ -351,6 +462,7 @@ final class QAppModel: ObservableObject {
             guard let self else { return }
             for await event in physicalDevice.buttonEvents {
                 if isAwaitingButtonTest {
+                    if event == .longPressEnded { continue }
                     completeButtonTest(event)
                     continue
                 }
@@ -364,7 +476,7 @@ final class QAppModel: ObservableObject {
         physicalConnectionTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                if !physicalDevice.isConnected {
+                if !physicalDevice.isConnected && !firmwareUpdateState.isRunning {
                     do {
                         try await physicalDevice.connect()
                         try await physicalDevice.apply(scene: virtualDevice.currentScene)
@@ -414,10 +526,15 @@ final class QAppModel: ObservableObject {
     }
 
     private func handleButtonEvent(_ event: QButtonEvent) {
+        if event == .longPressEnded {
+            codexIntegration.endDictation()
+            return
+        }
         let trigger: QButtonTrigger = switch event {
         case .singlePress: .singlePress
         case .doublePress: .doublePress
         case .longPress: .longPress
+        case .longPressEnded: .longPress
         }
         if selectedMode == .custom,
            let customAction = activeCustomState?.buttonMapping.action(for: trigger),
@@ -430,9 +547,14 @@ final class QAppModel: ObservableObject {
         case .singlePress: gestureSettings.singlePress
         case .doublePress: gestureSettings.doublePress
         case .longPress: gestureSettings.longPress
+        case .longPressEnded: gestureSettings.longPress
         }
         performGestureAction(assignment, event: event)
-        showGestureStatus()
+        let isCodexDictationHold = event == .longPress &&
+            selectedMode == .aiAgents && assignment == .contextual
+        if !isCodexDictationHold {
+            showGestureStatus()
+        }
     }
 
     func setGestureAction(_ action: QGestureAction, for event: QButtonEvent) {
@@ -440,6 +562,7 @@ final class QAppModel: ObservableObject {
         case .singlePress: gestureSettings.singlePress = action
         case .doublePress: gestureSettings.doublePress = action
         case .longPress: gestureSettings.longPress = action
+        case .longPressEnded: gestureSettings.longPress = action
         }
         if let data = try? JSONEncoder().encode(gestureSettings) {
             UserDefaults.standard.set(data, forKey: Self.gestureSettingsKey)
@@ -508,6 +631,7 @@ final class QAppModel: ObservableObject {
         case .singlePress: "Single press detected"
         case .doublePress: "Double press detected"
         case .longPress: "Long press detected"
+        case .longPressEnded: "Long press released"
         }
     }
 
@@ -519,6 +643,7 @@ final class QAppModel: ObservableObject {
                 case .singlePress: .singlePress
                 case .doublePress: .doublePress
                 case .longPress: .longPress
+                case .longPressEnded: .longPress
                 }
                 performCustomAction(state.buttonMapping.action(for: trigger))
                 return
@@ -528,6 +653,7 @@ final class QAppModel: ObservableObject {
             case .singlePress: .singlePress
             case .doublePress: .doublePress
             case .longPress: .longPress
+            case .longPressEnded: .longPress
             }
             performLocalAction(activePreset.buttonMapping(for: activeState.state).action(for: trigger))
         case .nextMode:
@@ -588,6 +714,10 @@ final class QAppModel: ObservableObject {
         switch action {
         case .focusSource, .focusHighestPrioritySource, .openResult, .focusFailedSource:
             codexIntegration.focus(agentSlots.first?.session)
+        case .focusMostRecentCodexChat:
+            codexIntegration.focusMostRecentChat()
+        case .startCodexDictation:
+            codexIntegration.startDictation(in: agentSlots.first?.session)
         case .cycleScene:
             cyclePrimaryAvailabilityState()
         case .setState(let state):

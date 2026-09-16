@@ -1,5 +1,7 @@
 # Q
 
+Current private-beta release: **Q 0.2.2**, paired with **firmware 0.2.2**.
+
 For the complete product, hardware, architecture, protocol, contributor, and
 extension guide, see [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
 
@@ -15,6 +17,23 @@ Accessibility control. Meeting states remain read-only in Q.
 
 Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with five factory modes: AI Agents, Availability, Meetings, Pomodoro, and Relaxing. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
 
+## First run and support
+
+The menu-bar app opens a first-run setup check that verifies the physical Q,
+firmware compatibility, Accessibility permission, Codex, optional Discord, the
+three LEDs, and the physical button. Settings can reopen this check at any time.
+
+“Copy diagnostic report” copies only app, macOS, hardware, permission, and
+integration status. It deliberately excludes prompts, chat text, task names,
+and other private content.
+
+When older firmware is detected, the app offers an in-app update. The release
+contains the complete firmware payload and a universal flashing tool, so
+recipients do not need PlatformIO. Q disconnects its normal serial session,
+flashes the already-identified Q port, reconnects, and verifies the expected
+version before declaring success. Keep Q connected during the update; a failed
+update remains retryable from the same card.
+
 ## Install Q
 
 Requirements: macOS 14 or later and Swift 6.0 or later.
@@ -25,6 +44,10 @@ Build and install the real application bundle:
 swift build
 sh Scripts/install-app.sh
 ```
+
+If Apple's installed Swift compiler and SwiftPM manifest runtime are temporarily
+out of sync, `sh Scripts/build-local.sh release` is the supported direct-compiler
+fallback. The DMG release script detects that toolchain condition automatically.
 
 Q is installed at `/Applications/Q.app`, appears in Spotlight and Finder with its
 own icon, and keeps its Q control in the macOS menu bar without adding a Dock
@@ -69,9 +92,16 @@ contextual button action is always shown in the popover.
 
 General Settings configures the physical button's single, double, and long press
 independently. Factory defaults use the contextual action for single press,
-cycle to the next primary mode for double press, and leave long press unassigned.
-Every press shows a compact five-second mode and state confirmation beside the
-menu-bar Q. Settings are persisted locally.
+cycle to the next primary mode for double press, and use the contextual action
+for long press. In AI Agents, a long press focuses the active Codex task and
+holds Codex's own `composer.startDictation` command until the physical button
+is released. macOS Accessibility is used only to deliver Codex's built-in
+Control-Shift-D binding; macOS system Dictation is never invoked.
+In AI Agents Idle, single press opens the most recently modified local Codex
+conversation directly.
+Every press normally shows a compact five-second mode and state confirmation
+beside the menu-bar Q. The AI Agents dictation hold remains silent so it starts
+without a competing popup. Settings are persisted locally.
 
 Custom modes are built in a native visual editor. Each profile can contain
 multiple named states, and every state defines the color, brightness, enabled

@@ -63,16 +63,28 @@ struct QModeCatalogTests {
     @Test func factoryMappingsUseOneContextualPress() {
         for mode in QModeCatalog.presets {
             #expect(mode.buttonMapping.doublePress == .none)
-            #expect(mode.buttonMapping.longPress == .none)
+            if mode.id == .aiAgents {
+                #expect(mode.buttonMapping.longPress == .startCodexDictation)
+            } else {
+                #expect(mode.buttonMapping.longPress == .none)
+            }
             for rule in mode.contextualButtonRules {
                 #expect(rule.mapping.doublePress == .none)
-                #expect(rule.mapping.longPress == .none)
+                if mode.id == .aiAgents {
+                    #expect(rule.mapping.longPress == .startCodexDictation)
+                } else {
+                    #expect(rule.mapping.longPress == .none)
+                }
             }
         }
 
         #expect(
             QModeCatalog.aiAgents.buttonMapping(for: .waitingForUser).singlePress
                 == .focusSource
+        )
+        #expect(
+            QModeCatalog.aiAgents.buttonMapping(for: .idle).singlePress
+                == .focusMostRecentCodexChat
         )
         #expect(
             QModeCatalog.availability.buttonMapping(for: .away).singlePress

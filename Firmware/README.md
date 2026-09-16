@@ -25,7 +25,10 @@ app responds immediately, while a genuinely restarted app performs a new
 handshake and triggers the three green pulses.
 
 The handshake response includes protocol version, firmware version, and a
-stable device identifier, for example `Q|1|0.2.1|Q-E8F60A143570`.
+stable device identifier, for example `Q|1|0.2.2|Q-E8F60A143570`.
+
+For held actions, firmware emits `B|long` when the threshold is crossed and
+`B|long-release` when the physical button is released.
 
 ## Hardware mapping
 

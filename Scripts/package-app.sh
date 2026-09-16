@@ -28,8 +28,10 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents
 /usr/bin/ditto "$project_dir/Resources/Brand/AppIconAssets.car" "$bundle/Contents/Resources/Assets.car"
 /usr/bin/ditto "$project_dir/Resources/Brand/QLogo.png" "$bundle/Contents/Resources/QLogo.png"
 /usr/bin/ditto "$project_dir/Resources/Brand/QMenuBarTemplate.png" "$bundle/Contents/Resources/QMenuBarTemplate.png"
+/usr/bin/ditto "$project_dir/Resources/Updater" "$bundle/Contents/Resources/Updater"
 /usr/bin/ditto "$project_dir/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/THIRD_PARTY_NOTICES.md"
 chmod +x "$bundle/Contents/MacOS/Q" "$bundle/Contents/MacOS/QDeviceWatcher"
+chmod +x "$bundle/Contents/Resources/Updater/espflash"
 
 if [ -n "${Q_VERSION:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $Q_VERSION" "$bundle/Contents/Info.plist"

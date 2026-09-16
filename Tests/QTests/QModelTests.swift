@@ -51,7 +51,7 @@ struct QModelTests {
 
         #expect(settings.singlePress == .contextual)
         #expect(settings.doublePress == .nextMode)
-        #expect(settings.longPress == .none)
+        #expect(settings.longPress == .contextual)
         #expect(try JSONDecoder().decode(
             QGestureSettings.self,
             from: JSONEncoder().encode(settings)
