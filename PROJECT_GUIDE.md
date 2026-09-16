@@ -6,7 +6,7 @@ integration, animation, or button action.
 
 It describes the repository as it exists today:
 
-- macOS app version: **0.2.3**
+- macOS app version: **0.3.0**
 - firmware version: **0.2.3**
 - serial protocol version: **1**
 - target hardware: **Seeed Studio XIAO ESP32-C3 + Q production PCB**
@@ -701,8 +701,9 @@ Never flash a different board target without checking pins and voltage first.
 
 ## 14. Adding a new agent integration
 
-The existing Codex adapter is the reference implementation:
-`Sources/Q/Integrations/CodexLocalIntegration.swift`.
+The Codex and Claude Code adapters are the reference implementations:
+`Sources/Q/Integrations/CodexLocalIntegration.swift` and
+`Sources/Q/Integrations/ClaudeCodeLocalIntegration.swift`.
 
 A new adapter should:
 
@@ -721,17 +722,15 @@ A new adapter should:
 6. Add exact focusing behavior for the selected session.
 7. Add parser, resolver, stale-session, and multi-agent tests.
 
-Before combining Codex, Claude, ChatGPT, and other sources, refactor
-`QAppModel` to maintain sessions **per source** and merge them. Do not let the
-latest adapter callback replace all sessions from the other adapters. A sensible
-shape is:
+`QAppModel` maintains sessions **per source** and merges them. Do not let a new
+adapter callback replace sessions from the other adapters. The current shape is:
 
 ```swift
 private var agentSessionsBySource: [String: [QAgentSession]] = [:]
 
 func updateAgentSessions(source: String, sessions: [QAgentSession]) {
     agentSessionsBySource[source] = sessions
-    updateAgentSessions(Array(agentSessionsBySource.values.joined()))
+    refreshAgentPresentation()
 }
 ```
 
@@ -741,6 +740,11 @@ change.
 
 Do not infer “needs you” merely because a window exists. Prefer explicit
 permission/input events; false blue alerts destroy trust in the device.
+
+Claude Code uses its documented lifecycle hooks. The bundled `QClaudeHook`
+helper sanitizes stdin down to lifecycle metadata before appending the local
+event stream. Hook installation merges with `~/.claude/settings.json`, creates
+`settings.json.q-backup`, and must never delete unrelated user hooks.
 
 ## 15. Adding a meeting integration
 
@@ -927,7 +931,10 @@ log show --last 10m --style compact --predicate 'subsystem == "app.q"'
 ```
 
 Useful categories include `serial-device`, `application`, `codex-integration`,
-`codex-scanner`, `discord-integration`, and `status-item`.
+`codex-scanner`, `claude-code-integration`, `discord-integration`, and
+`status-item`. The in-app diagnostic report also includes a bounded recent
+technical timeline. Run the release procedure in `Docs/RELIABILITY_MATRIX.md`
+before distributing a beta.
 
 ### Device remains red
 

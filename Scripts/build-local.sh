@@ -32,8 +32,14 @@ for arch in arm64 x86_64; do
     xcrun swiftc -module-name QDeviceWatcher -target "$arch-apple-macos14.0" -sdk "$sdk" \
         $optimization $(find "$project_dir/Sources/QDeviceWatcher" -name '*.swift' -print | sort) \
         -o "$arch_output/QDeviceWatcher"
+
+    # shellcheck disable=SC2046
+    xcrun swiftc -module-name QClaudeHook -target "$arch-apple-macos14.0" -sdk "$sdk" \
+        $optimization $(find "$project_dir/Sources/QClaudeHook" -name '*.swift' -print | sort) \
+        -o "$arch_output/QClaudeHook"
 done
 
 lipo -create "$output/arm64/Q" "$output/x86_64/Q" -output "$output/Q"
 lipo -create "$output/arm64/QDeviceWatcher" "$output/x86_64/QDeviceWatcher" -output "$output/QDeviceWatcher"
+lipo -create "$output/arm64/QClaudeHook" "$output/x86_64/QClaudeHook" -output "$output/QClaudeHook"
 echo "$output"

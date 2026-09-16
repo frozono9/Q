@@ -5,6 +5,7 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 configuration=${1:-debug}
 binary=${Q_BUILD_BINARY:-"$project_dir/.build/arm64-apple-macosx/$configuration/Q"}
 watcher_binary=${Q_WATCHER_BINARY:-"$(dirname "$binary")/QDeviceWatcher"}
+claude_hook_binary=${Q_CLAUDE_HOOK_BINARY:-"$(dirname "$binary")/QClaudeHook"}
 bundle="$project_dir/.build/Q.app"
 
 if [ ! -x "$binary" ]; then
@@ -15,6 +16,10 @@ if [ ! -x "$watcher_binary" ]; then
     echo "Missing QDeviceWatcher executable at $watcher_binary. Build all Q products first." >&2
     exit 1
 fi
+if [ ! -x "$claude_hook_binary" ]; then
+    echo "Missing QClaudeHook executable at $claude_hook_binary. Build all Q products first." >&2
+    exit 1
+fi
 
 if [ -d "$bundle" ]; then
     rm -rf "$bundle"
@@ -22,6 +27,7 @@ fi
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents/Library/LaunchAgents"
 /usr/bin/ditto "$binary" "$bundle/Contents/MacOS/Q"
 /usr/bin/ditto "$watcher_binary" "$bundle/Contents/MacOS/QDeviceWatcher"
+/usr/bin/ditto "$claude_hook_binary" "$bundle/Contents/MacOS/QClaudeHook"
 /usr/bin/ditto "$project_dir/Config/Info.plist" "$bundle/Contents/Info.plist"
 /usr/bin/ditto "$project_dir/Config/app.q.device-watcher.plist" "$bundle/Contents/Library/LaunchAgents/app.q.device-watcher.plist"
 /usr/bin/ditto "$project_dir/Resources/Brand/AppIcon.icns" "$bundle/Contents/Resources/AppIcon.icns"
@@ -30,7 +36,7 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$bundle/Contents
 /usr/bin/ditto "$project_dir/Resources/Brand/QMenuBarTemplate.png" "$bundle/Contents/Resources/QMenuBarTemplate.png"
 /usr/bin/ditto "$project_dir/Resources/Updater" "$bundle/Contents/Resources/Updater"
 /usr/bin/ditto "$project_dir/THIRD_PARTY_NOTICES.md" "$bundle/Contents/Resources/THIRD_PARTY_NOTICES.md"
-chmod +x "$bundle/Contents/MacOS/Q" "$bundle/Contents/MacOS/QDeviceWatcher"
+chmod +x "$bundle/Contents/MacOS/Q" "$bundle/Contents/MacOS/QDeviceWatcher" "$bundle/Contents/MacOS/QClaudeHook"
 chmod +x "$bundle/Contents/Resources/Updater/espflash"
 
 if [ -n "${Q_VERSION:-}" ]; then

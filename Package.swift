@@ -9,7 +9,8 @@ let package = Package(
     ],
     products: [
         .executable(name: "Q", targets: ["Q"]),
-        .executable(name: "QDeviceWatcher", targets: ["QDeviceWatcher"])
+        .executable(name: "QDeviceWatcher", targets: ["QDeviceWatcher"]),
+        .executable(name: "QClaudeHook", targets: ["QClaudeHook"])
     ],
     targets: [
         .target(
@@ -26,6 +27,10 @@ let package = Package(
         .executableTarget(
             name: "QDeviceWatcher",
             path: "Sources/QDeviceWatcher"
+        ),
+        .executableTarget(
+            name: "QClaudeHook",
+            path: "Sources/QClaudeHook"
         ),
         .testTarget(
             name: "QTests",

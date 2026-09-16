@@ -312,7 +312,7 @@ struct QMenuBarView: View {
                 } label: {
                     HStack(spacing: 9) {
                         LEDDot(state: slot.session.ledState, size: 10)
-                        Text(slot.session.displayName)
+                        Text("\(slot.session.source) · \(slot.session.displayName)")
                             .font(.caption.weight(.medium))
                             .lineLimit(1)
                         Spacer()
@@ -369,11 +369,12 @@ struct QMenuBarView: View {
                 return "Press Q to open the agent that needs you most."
             }
             if let session = model.agentSlots.first?.session {
-                return "Codex · \(session.displayName)"
+                return "\(session.source) · \(session.displayName)"
             }
-            return model.isCodexIntegrationAvailable
-                ? "Watching for agent activity"
-                : "Start a local Codex task to connect."
+            if model.isCodexIntegrationAvailable || model.isClaudeCodeConnected {
+                return "Watching for agent activity"
+            }
+            return "Open Codex or connect Claude Code."
         case .meetings:
             if let provider = model.selectedMeetingProvider {
                 if !model.isMeetingProviderAvailable(provider) {
@@ -519,6 +520,32 @@ struct QMenuBarView: View {
                             status: model.isCodexIntegrationAvailable ? "Ready" : "Not detected",
                             available: model.isCodexIntegrationAvailable
                         )
+                        HStack {
+                            Circle()
+                                .fill(model.isClaudeCodeConnected ? Color.green : Color.secondary.opacity(0.5))
+                                .frame(width: 7, height: 7)
+                            Text("Claude Code").font(.caption)
+                            Spacer()
+                            Text(model.isClaudeCodeConnected ? "Connected" : (model.isClaudeCodeInstalled ? "Not connected" : "Not installed"))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Button(model.isClaudeCodeConnected ? "Disconnect" : (model.isClaudeCodeInstalled ? "Connect" : "Install…")) {
+                                if model.isClaudeCodeConnected {
+                                    model.disconnectClaudeCode()
+                                } else if model.isClaudeCodeInstalled {
+                                    model.connectClaudeCode()
+                                } else {
+                                    model.openClaudeCodeInstallGuide()
+                                }
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption2)
+                        }
+                        if let error = model.claudeCodeConnectionError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
                         integrationStatusRow(
                             name: "Accessibility",
                             status: model.isAccessibilityAuthorized ? "Granted" : "Required",
@@ -596,12 +623,38 @@ struct QMenuBarView: View {
                         }
 
                         Divider()
+                        deviceDetailRow("Q app", value: model.appVersionLabel)
                         deviceDetailRow("Identifier", value: model.physicalDeviceIdentifier ?? "—")
                         deviceDetailRow("Firmware", value: model.physicalFirmwareVersion ?? "—")
                         deviceDetailRow(
                             "Port",
                             value: model.physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—"
                         )
+                        if !model.recentDiagnosticEvents.isEmpty {
+                            Divider()
+                            Text("Recent activity")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            ForEach(Array(model.recentDiagnosticEvents.prefix(4))) { event in
+                                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                    Image(systemName: diagnosticIcon(for: event.outcome))
+                                        .font(.caption2)
+                                        .foregroundStyle(event.outcome == .failed ? Color.red : Color.secondary)
+                                        .frame(width: 12)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(event.title)
+                                            .font(.caption)
+                                            .lineLimit(1)
+                                        if !event.detail.isEmpty {
+                                            Text(event.detail)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Divider()
                         HStack {
                             Button("Setup check…") {
@@ -658,6 +711,15 @@ struct QMenuBarView: View {
         }
     }
 
+    private func diagnosticIcon(for outcome: QDiagnosticOutcome) -> String {
+        switch outcome {
+        case .information: "circle"
+        case .confirmed: "checkmark.circle.fill"
+        case .unconfirmed: "questionmark.circle"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
     private var setupView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -696,6 +758,18 @@ struct QMenuBarView: View {
                     detail: model.isCodexIntegrationAvailable ? "Detected" : "Open Codex to connect it",
                     ready: model.isCodexIntegrationAvailable
                 )
+                setupRow(
+                    title: "Claude Code",
+                    detail: model.isClaudeCodeConnected
+                        ? "Connected"
+                        : (model.isClaudeCodeInstalled ? "Installed · connect Q hooks" : "Optional · not installed"),
+                    ready: model.isClaudeCodeConnected,
+                    optional: true
+                )
+                if model.isClaudeCodeInstalled, !model.isClaudeCodeConnected {
+                    Button("Connect Claude Code") { model.connectClaudeCode() }
+                        .buttonStyle(.bordered)
+                }
                 setupRow(
                     title: "Discord",
                     detail: model.isDiscordIntegrationAvailable ? "Detected" : "Optional · open Discord to test",

@@ -1,14 +1,15 @@
 # Q
 
-Current private-beta release: **Q 0.2.3**, paired with **firmware 0.2.3**.
+Current private-beta release: **Q 0.3.0**, paired with **firmware 0.2.3**.
 
 For the complete product, hardware, architecture, protocol, contributor, and
 extension guide, see [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).
 
-Q connects automatically to local Codex agent sessions. It watches the
-live local rollout event stream, maps agent activity to Q's semantic states, and
-opens the exact Codex thread through its native `codex://threads/<id>` deep link.
-No separate API key or cloud relay is required.
+Q connects automatically to local Codex agent sessions and can connect to
+Claude Code through its official lifecycle hooks. Both sources share the same
+agent slots and LED grammar. Q stores only Claude lifecycle metadata—never
+prompts, commands, tool inputs, or conversation content. No separate API key or
+cloud relay is required.
 
 Meeting mode integrates with Discord, Zoom, Google Meet, and Microsoft Teams.
 Discord uses its local RTC log; Zoom, Meet, and Teams are recognized from their
@@ -77,8 +78,9 @@ for the one-command PlatformIO upload flow and the verified PCB pin map.
 
 Q ships as the familiar drag-to-Applications disk image used by independent Mac
 apps. `Scripts/release-dmg.sh` builds a universal Apple silicon + Intel release,
-packages and Developer-ID signs `Q.app`, creates a compressed `Q-<version>.dmg`
-containing Q beside an Applications shortcut, and verifies the image.
+signs with the best available identity (or ad hoc for private development),
+creates a compressed `Q-<version>.dmg` containing Q beside an Applications
+shortcut, and mounts and verifies the finished image.
 
 For a public release, first save Apple notary credentials once:
 
@@ -99,13 +101,12 @@ The app keeps a virtual device model internally for shared behavior and testing,
 but the product UI is focused on the connected physical device. The current
 contextual button action is always shown in the popover.
 
-General Settings configures the physical button's single, double, and long press
-independently. Factory defaults use the contextual action for single press,
-cycle to the next primary mode for double press, and use the contextual action
-for long press. In AI Agents, a long press focuses the active Codex task and
-holds Codex's own `composer.startDictation` command until the physical button
-is released. macOS Accessibility is used only to deliver Codex's built-in
-Control-Shift-D binding; macOS system Dictation is never invoked.
+Q uses a fixed global gesture grammar: contextual action for single press,
+next mode for double press, new Codex chat for triple press, and contextual hold
+for long press. Custom modes may override their own gestures. In AI Agents, a
+long press on a Codex task holds Codex's own `composer.startDictation` command
+until the physical button is released. A Claude Code task is focused instead of
+silently opening Codex. macOS system Dictation is never invoked.
 In AI Agents Idle, single press opens the most recently modified local Codex
 conversation directly.
 Triple press is a fixed global shortcut that opens a new Codex chat from any Q

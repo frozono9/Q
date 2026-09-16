@@ -18,6 +18,9 @@ final class QAppModel: ObservableObject {
     @Published private(set) var agentSessions: [QAgentSession] = []
     @Published private(set) var agentSlots: [QAgentSlot] = []
     @Published private(set) var isCodexIntegrationAvailable = false
+    @Published private(set) var isClaudeCodeInstalled = false
+    @Published private(set) var isClaudeCodeConnected = false
+    @Published private(set) var claudeCodeConnectionError: String?
     @Published private(set) var isDiscordIntegrationAvailable = false
     @Published private(set) var isDiscordControlAuthorized = false
     @Published private(set) var isZoomIntegrationAvailable = false
@@ -42,6 +45,7 @@ final class QAppModel: ObservableObject {
     @Published private(set) var firmwareUpdateState: QFirmwareUpdateState = .idle
     @Published private(set) var firmwareUpdateProgress: Double?
     @Published private(set) var firmwareRecoveryPortPath: String?
+    @Published private(set) var recentDiagnosticEvents: [QDiagnosticEvent] = []
 
     private var selectedStateByMode: [QMode: String] = [
         .aiAgents: "idle",
@@ -65,11 +69,13 @@ final class QAppModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var unscaledScene: QScene?
     private var meetingSessions: [QMeetingProvider: QMeetingSession] = [:]
-    private var meetingPushToTalkProvider: QMeetingProvider?
-    private var meetingHoldID: UUID?
+    private var meetingHoldLifecycle = QMeetingHoldLifecycle()
     private var meetingControlTask: Task<Void, Never>?
     private var contextualHoldInProgress: QContextualHold?
+    private var agentSessionsBySource: [String: [QAgentSession]] = [:]
+    private var diagnosticTimeline = QDiagnosticTimeline(capacity: 20)
     private let codexIntegration = CodexLocalIntegration()
+    private let claudeCodeIntegration = ClaudeCodeLocalIntegration()
     private let discordIntegration = DiscordLocalIntegration()
     private let zoomIntegration = LocalMeetingIntegration(
         provider: .zoom,
@@ -132,6 +138,12 @@ final class QAppModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] connected in
                 self?.isPhysicalDeviceConnected = connected
+                self?.recordDiagnostic(
+                    category: "device",
+                    title: connected ? "Q connected" : "Q disconnected",
+                    detail: self?.physicalDeviceName ?? "Q",
+                    outcome: connected ? .confirmed : .information
+                )
             }
             .store(in: &cancellables)
         self.physicalDevice.$firmwareVersion
@@ -157,6 +169,7 @@ final class QAppModel: ObservableObject {
             startListeningForButtonEvents()
             startPhysicalDeviceConnection()
             startCodexIntegration()
+            startClaudeCodeIntegration()
             startMeetingIntegrations()
         } catch {
             logger.error("Could not connect Virtual Q: \(error.localizedDescription, privacy: .public)")
@@ -208,10 +221,21 @@ final class QAppModel: ObservableObject {
             : "Up to date · \(physicalFirmwareVersion)"
     }
 
+    var appVersionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development"
+        return "\(version) (\(build))"
+    }
+
     var diagnosticReport: String {
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development"
         let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let recentActivity = recentDiagnosticEvents.map { event in
+            let timestamp = ISO8601DateFormatter().string(from: event.date)
+            let detail = event.detail.isEmpty ? "" : " · \(event.detail)"
+            return "\(timestamp) [\(event.outcome.rawValue)] \(event.category): \(event.title)\(detail)"
+        }.joined(separator: "\n")
         return """
         Q Diagnostic Report
         Generated: \(ISO8601DateFormatter().string(from: Date()))
@@ -225,6 +249,8 @@ final class QAppModel: ObservableObject {
         Serial port: \(physicalPortPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "unavailable")
         Accessibility: \(isAccessibilityAuthorized ? "granted" : "not granted")
         Codex detected: \(isCodexIntegrationAvailable ? "yes" : "no")
+        Claude Code installed: \(isClaudeCodeInstalled ? "yes" : "no")
+        Claude Code connected: \(isClaudeCodeConnected ? "yes" : "no")
         Discord detected: \(isDiscordIntegrationAvailable ? "yes" : "no")
         Discord control: \(isDiscordControlAuthorized ? "available" : "not available")
         Zoom detected: \(isZoomIntegrationAvailable ? "yes" : "no")
@@ -234,6 +260,8 @@ final class QAppModel: ObservableObject {
         Active meeting: \(activeMeetingSession?.provider.name ?? "none")
         Mode: \(currentModeName)
         State: \(selectedStateID)
+        Recent activity:
+        \(recentActivity.isEmpty ? "none" : recentActivity)
         """
     }
 
@@ -324,7 +352,8 @@ final class QAppModel: ObservableObject {
         switch selectedMode {
         case .aiAgents:
             if !agentSlots.isEmpty {
-                return "Open task in Codex"
+                if agentSlots.count > 1 { return "Open priority agent" }
+                return "Open \(agentSlots[0].session.source) task"
             }
             switch selectedStateID {
             case "done": return "Open completed agent"
@@ -368,7 +397,12 @@ final class QAppModel: ObservableObject {
     var integrationConnectionLabel: String? {
         switch selectedMode {
         case .aiAgents:
-            return isCodexIntegrationAvailable ? "Codex live" : "Codex offline"
+            switch (isCodexIntegrationAvailable, isClaudeCodeConnected) {
+            case (true, true): return "Codex + Claude"
+            case (true, false): return "Codex live"
+            case (false, true): return "Claude live"
+            case (false, false): return "No agents"
+            }
         case .meetings:
             if let activeMeetingSession { return "\(activeMeetingSession.provider.name) live" }
             if let provider = selectedMeetingProvider {
@@ -384,7 +418,7 @@ final class QAppModel: ObservableObject {
 
     var isIntegrationConnectionActive: Bool {
         switch selectedMode {
-        case .aiAgents: return isCodexIntegrationAvailable
+        case .aiAgents: return isCodexIntegrationAvailable || isClaudeCodeConnected
         case .meetings:
             if let provider = selectedMeetingProvider {
                 return isMeetingProviderAvailable(provider)
@@ -416,7 +450,7 @@ final class QAppModel: ObservableObject {
         }
         applyFactoryPreset(preset)
         if mode == .aiAgents {
-            updateAgentSessions(agentSessions, forceRefresh: true)
+            refreshAgentPresentation(forceRefresh: true)
         }
         if mode == .pomodoro, stateID == "focus" || stateID == "break" {
             applyPomodoroProgress()
@@ -486,7 +520,28 @@ final class QAppModel: ObservableObject {
         applyPomodoroProgress()
     }
 
-    func updateAgentSessions(_ sessions: [QAgentSession], forceRefresh: Bool = false) {
+    func updateAgentSessions(
+        source: String,
+        sessions: [QAgentSession],
+        forceRefresh: Bool = false
+    ) {
+        let previous = agentSessionsBySource[source] ?? []
+        agentSessionsBySource[source] = sessions
+        if previous != sessions {
+            let states = sessions.map { String(describing: $0.state) }.joined(separator: ", ")
+            recordDiagnostic(
+                category: "agent",
+                title: "\(source) updated",
+                detail: sessions.isEmpty ? "No active sessions" : "\(sessions.count) · \(states)"
+            )
+        }
+        refreshAgentPresentation(forceRefresh: forceRefresh)
+    }
+
+    private func refreshAgentPresentation(forceRefresh: Bool = false) {
+        let sessions = agentSessionsBySource.values
+            .flatMap { $0 }
+            .sorted { $0.updatedAt > $1.updatedAt }
         guard forceRefresh || sessions != agentSessions else { return }
         agentSessions = sessions
         agentSlots = QAgentSlotResolver.resolve(sessions, preserving: agentSlots)
@@ -564,8 +619,47 @@ final class QAppModel: ObservableObject {
         codexIntegration.start { [weak self] snapshot in
             guard let self else { return }
             isCodexIntegrationAvailable = snapshot.isAvailable
-            updateAgentSessions(snapshot.sessions)
+            updateAgentSessions(source: "Codex", sessions: snapshot.sessions)
         }
+    }
+
+    private func startClaudeCodeIntegration() {
+        claudeCodeIntegration.start { [weak self] snapshot in
+            guard let self else { return }
+            isClaudeCodeInstalled = snapshot.isInstalled
+            isClaudeCodeConnected = snapshot.isConnected
+            updateAgentSessions(source: "Claude Code", sessions: snapshot.sessions)
+        }
+    }
+
+    func connectClaudeCode() {
+        do {
+            try claudeCodeIntegration.installHooks()
+            claudeCodeConnectionError = nil
+            isClaudeCodeConnected = true
+            recordDiagnostic(category: "agent", title: "Claude Code connected", outcome: .confirmed)
+        } catch {
+            claudeCodeConnectionError = error.localizedDescription
+            recordDiagnostic(category: "agent", title: "Claude Code connection failed", detail: error.localizedDescription, outcome: .failed)
+        }
+    }
+
+    func disconnectClaudeCode() {
+        do {
+            try claudeCodeIntegration.removeHooks()
+            claudeCodeConnectionError = nil
+            isClaudeCodeConnected = false
+            updateAgentSessions(source: "Claude Code", sessions: [])
+            recordDiagnostic(category: "agent", title: "Claude Code disconnected")
+        } catch {
+            claudeCodeConnectionError = error.localizedDescription
+            recordDiagnostic(category: "agent", title: "Claude Code disconnect failed", detail: error.localizedDescription, outcome: .failed)
+        }
+    }
+
+    func openClaudeCodeInstallGuide() {
+        guard let url = URL(string: "https://code.claude.com/docs/en/overview") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func startMeetingIntegrations() {
@@ -649,6 +743,11 @@ final class QAppModel: ObservableObject {
         logger.notice(
             "Button event=\(event.rawValue, privacy: .public) mode=\(self.selectedMode.rawValue, privacy: .public) meeting=\(self.activeMeetingSession?.provider.rawValue ?? "none", privacy: .public)"
         )
+        recordDiagnostic(
+            category: "button",
+            title: event.rawValue,
+            detail: "\(currentModeName) · \(selectedStateID)"
+        )
         if event == .triplePress {
             codexIntegration.openNewChat()
             NotificationCenter.default.post(
@@ -680,7 +779,12 @@ final class QAppModel: ObservableObject {
             contextualHoldInProgress = hold
             switch hold {
             case .meeting(let provider): beginMeetingPushToTalk(provider: provider)
-            case .dictation: codexIntegration.startDictation(in: agentSlots.first?.session)
+            case .dictation:
+                if let session = agentSlots.first?.session, session.source == "Claude Code" {
+                    claudeCodeIntegration.focus(session)
+                } else {
+                    codexIntegration.startDictation(in: agentSlots.first?.session)
+                }
             case .none: break
             }
             return
@@ -877,11 +981,15 @@ final class QAppModel: ObservableObject {
     private func performLocalAction(_ action: QButtonAction) {
         switch action {
         case .focusSource, .focusHighestPrioritySource, .openResult, .focusFailedSource:
-            codexIntegration.focus(agentSlots.first?.session)
+            if let session = agentSlots.first?.session { focusAgent(session) }
         case .focusMostRecentCodexChat:
             codexIntegration.focusMostRecentChat()
         case .startCodexDictation:
-            codexIntegration.startDictation(in: agentSlots.first?.session)
+            if let session = agentSlots.first?.session, session.source == "Claude Code" {
+                claudeCodeIntegration.focus(session)
+            } else {
+                codexIntegration.startDictation(in: agentSlots.first?.session)
+            }
         case .cycleScene:
             cyclePrimaryAvailabilityState()
         case .setState(let state):
@@ -924,17 +1032,13 @@ final class QAppModel: ObservableObject {
     }
 
     private func beginMeetingPushToTalk(provider: QMeetingProvider) {
-        guard meetingPushToTalkProvider == nil else { return }
-        let holdID = UUID()
-        meetingHoldID = holdID
-        meetingPushToTalkProvider = provider
+        guard let hold = meetingHoldLifecycle.begin(provider: provider) else { return }
         enqueueMeetingControl { model in
             // If the release arrived while this command was waiting behind a
             // previous meeting action, discard the stale unmute completely.
-            guard model.meetingHoldID == holdID,
-                  model.meetingPushToTalkProvider == provider else { return }
+            guard model.meetingHoldLifecycle.isCurrent(hold) else { return }
             let result = await model.setMeetingMuted(false, provider: provider)
-            guard model.meetingHoldID == holdID else { return }
+            guard model.meetingHoldLifecycle.isCurrent(hold) else { return }
             model.handleMeetingControlResult(
                 result,
                 provider: provider,
@@ -945,9 +1049,8 @@ final class QAppModel: ObservableObject {
     }
 
     private func endMeetingPushToTalk() {
-        guard let provider = meetingPushToTalkProvider else { return }
-        meetingPushToTalkProvider = nil
-        meetingHoldID = nil
+        guard let hold = meetingHoldLifecycle.end() else { return }
+        let provider = hold.provider
         enqueueMeetingControl { model in
             let result = await model.setMeetingMuted(true, provider: provider)
             model.handleMeetingControlResult(
@@ -1010,6 +1113,17 @@ final class QAppModel: ObservableObject {
         case .failed:
             stateLabel = "Could not confirm microphone"
         }
+        let diagnosticOutcome: QDiagnosticOutcome = switch result {
+        case .confirmed: .confirmed
+        case .sentUnconfirmed: .unconfirmed
+        case .unavailable, .permissionDenied, .failed: .failed
+        }
+        recordDiagnostic(
+            category: "meeting",
+            title: "\(provider.name) · \(stateLabel)",
+            detail: "Requested \(desired.rawValue)",
+            outcome: diagnosticOutcome
+        )
         NotificationCenter.default.post(
             name: .qShowGestureStatus,
             object: nil,
@@ -1249,7 +1363,23 @@ final class QAppModel: ObservableObject {
     }
 
     func focusAgent(_ session: QAgentSession) {
-        codexIntegration.focus(session)
+        if session.source == "Claude Code" {
+            claudeCodeIntegration.focus(session)
+        } else {
+            codexIntegration.focus(session)
+        }
+    }
+
+    private func recordDiagnostic(
+        category: String,
+        title: String,
+        detail: String = "",
+        outcome: QDiagnosticOutcome = .information
+    ) {
+        diagnosticTimeline.append(
+            QDiagnosticEvent(category: category, title: title, detail: detail, outcome: outcome)
+        )
+        recentDiagnosticEvents = diagnosticTimeline.events
     }
 
     private func cyclePrimaryAvailabilityState() {
