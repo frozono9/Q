@@ -93,14 +93,14 @@ public enum QMeetingControlVocabulary {
     public static func microphoneState(buttonLabels: [String]) -> QMicrophoneState {
         for rawLabel in buttonLabels {
             let label = normalized(rawLabel)
-            if label == "unmute" || unmuteTerms.contains(where: { label.contains($0) }) {
+            if label == "unmute" || unmuteTerms.contains(where: { containsTerm($0, in: label) }) {
                 return .muted
             }
         }
         for rawLabel in buttonLabels {
             let label = normalized(rawLabel)
             if label == "mute" || label == "silenciar" ||
-                muteTerms.contains(where: { label.contains($0) }) {
+                muteTerms.contains(where: { containsTerm($0, in: label) }) {
                 return .unmuted
             }
         }
@@ -132,6 +132,13 @@ public enum QMeetingControlVocabulary {
         buttonLabels.map(normalized).contains { label in
             leaveTerms.contains(where: { label.contains($0) })
         }
+    }
+
+    private static func containsTerm(_ term: String, in label: String) -> Bool {
+        // Match words: "desactivar" contains "activar", but they request
+        // opposite actions. Boundaries still allow shortcut/help suffixes.
+        let pattern = "\\b" + NSRegularExpression.escapedPattern(for: term) + "\\b"
+        return label.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static let unmuteTerms = [

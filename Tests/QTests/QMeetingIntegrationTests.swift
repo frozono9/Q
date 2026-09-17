@@ -89,6 +89,16 @@ struct QMeetingArbiterTests {
         ) == .unknown)
     }
 
+    @Test func actionWordsDoNotMatchInsideOppositeActions() {
+        for label in ["Desactivar micrófono (Ctrl+M)", "Desactivar audio"] {
+            #expect(QMeetingControlVocabulary.microphoneState(buttonLabels: [label]) == .unmuted)
+            #expect(!QMeetingControlVocabulary.buttonPerformsDesiredAction(label: label, shouldMute: false))
+        }
+        for label in ["Activar audio (Ctrl+M)", "Unmute my audio", "Unmute"] {
+            #expect(QMeetingControlVocabulary.microphoneState(buttonLabels: [label]) == .muted)
+        }
+    }
+
     @Test func persistentMuteToggleUsesItsAccessibilityValue() {
         #expect(QMeetingControlVocabulary.microphoneToggleState(
             label: "Mute",

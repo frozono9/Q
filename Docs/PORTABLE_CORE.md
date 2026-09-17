@@ -13,10 +13,12 @@ Apple-specific device implementations and does not declare the Mac executables.
 
 The `QDevice` contract, `QDeviceError`, button events, `QSerialProtocol` and every
 model compile from the same files. There are no copied models, new runtime
-dependencies, public API renames or edits to Mac UI/integration sources.
+dependencies, public API renames or Mac UI/integration rewrites.
 `Scripts/build-local.sh` still compiles the same source directories directly.
 The Mac serial adapter has one compiler-compatibility fix: three explicit
 `self.` references in the heartbeat error closure, with unchanged behavior.
+Two additional Mac build fixes make the meeting logger's `self.provider`
+explicit and isolate the shared NSImage assets to the main actor.
 
 All existing model/resolver/protocol tests run on every host. The three tests
 in `VirtualQDeviceTests.swift` remain enabled on Mac; the other hosts exclude
@@ -76,6 +78,11 @@ The same diagnostics appeared on the portable branch before the fix. See the
 [baseline run](https://github.com/frozono9/Q/actions/runs/35245506474).
 The original baseline is not repeatedly tested in subsequent runs; those runs
 validate the current branch, including the minimal fix. No change was made to main.
+
+Executing the portable tests also exposed an existing vocabulary bug: substring
+matching classified Spanish "Desactivar micrófono" as "Activar micrófono".
+Microphone phrases now match at word boundaries; the existing failing assertion
+is retained and additional tests cover opposite actions with shortcut suffixes.
 
 P0 remains incomplete until successful runs are recorded and the Mac hardware/
 interactive smoke test in the implementation plan is completed. The next
