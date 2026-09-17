@@ -1,0 +1,96 @@
+name: Portable core
+
+on:
+  push:
+    branches: [feature/portable-clients]
+    paths:
+      - Package.swift
+      - Sources/**
+      - Tests/**
+      - Scripts/**
+      - Config/**
+      - Resources/**
+      - .github/workflows/portable-core.yml
+  pull_request:
+    branches: [main, feature/portable-clients]
+    paths:
+      - Package.swift
+      - Sources/**
+      - Tests/**
+      - Scripts/**
+      - Config/**
+      - Resources/**
+      - .github/workflows/portable-core.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core and tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Select Xcode 16.4 (Swift 6.1.2)
+        if: runner.os == 'macOS'
+        run: echo 'DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer' >> "$GITHUB_ENV"
+      - name: Install Swift 6.1.2 on Linux
+        if: runner.os == 'Linux'
+        uses: swift-actions/setup-swift@7591e4f04c00624cb043783da51a7fd6ee0a6bf6 # v2
+        with:
+          swift-version: '6.1.2'
+      - name: Install Swift 6.1.2 on Windows
+        if: runner.os == 'Windows'
+        uses: compnerd/gha-setup-swift@397094e75494a93fa8d81db0268dbc8f5d6cf7c6
+        with:
+          swift-version: swift-6.1.2-release
+          swift-build: 6.1.2-RELEASE
+      - name: Record compiler
+        run: swift --version
+      - name: Build shared core
+        run: swift build --target QCore
+      - name: Run tests (including Mac device tests on macOS)
+        run: swift test
+      - name: Compile optimized products
+        run: swift build --configuration release
+
+  mac-regression:
+    name: Mac baseline and existing build scripts
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out the unmodified P0 baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 5c7a1e5c6a48c661d4dde22840372fe246af5884
+          path: .build/p0-baseline
+      - name: Test original Mac sources
+        working-directory: .build/p0-baseline
+        run: swift test
+      - name: Compile current universal binaries with the existing fallback
+        run: sh Scripts/build-local.sh release
+      - name: Package and verify the existing Mac app
+        env:
+          Q_BUILD_BINARY: ${{ github.workspace }}/.build/manual-release/Q
+        run: |
+          sh Scripts/package-app.sh release
+          for executable in Q QDeviceWatcher QClaudeHook; do
+            lipo -verify_arch arm64 x86_64 ".build/Q.app/Contents/MacOS/$executable"
+          done
+          codesign --verify --deep --strict .build/Q.app
+
+# These jobs validate this branch. They do not publish releases, install the
+# app, flash hardware, change branch protection or gate the Mac release job.

@@ -1,6 +1,6 @@
 # Q: plan de clientes portables con macOS como plataforma principal
 
-Estado: propuesta de implementación; este documento no implica soporte ya disponible.
+Estado: P0 en implementación; este documento no implica soporte ya disponible.
 Fecha: 17 de septiembre de 2026.
 Rama: `feature/portable-clients`.
 Base inspeccionada: `5c7a1e5c6a48c661d4dde22840372fe246af5884`.
@@ -12,8 +12,8 @@ su evolución con el menor mantenimiento posible. macOS conserva la experiencia
 principal, su interfaz nativa, sus integraciones y su calendario de publicación.
 
 El trabajo inicial se desarrolla en esta rama y en un worktree separado.
-Publicar la rama no autoriza fusionarla en `main`. Esta entrega añade únicamente
-el plan: no modifica código, firmware, pipelines ni configuración de repositorio.
+Publicar la rama no autoriza fusionarla en `main`. La entrega inicial añadió
+únicamente el plan. El seguimiento de P0 está en [PORTABLE_CORE.md](PORTABLE_CORE.md).
 
 No se promete paridad inmediata entre sistemas ni que una compilación automática
 adapte funciones exclusivas de macOS. Compartir lógica reduce trabajo repetido;
