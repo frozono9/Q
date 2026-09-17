@@ -80,3 +80,34 @@ No GUI, automatic firmware upgrade, background service, Meetings control or
 agent integration is included. Packaging here is for development/hardware tests;
 the end-user distribution work remains in P4. Physical button and unplug/replug
 results must be recorded separately from simulator/CI results.
+
+## Validation record
+
+On 17 September 2026, [CI for `157d2ab`](https://github.com/frozono9/Q/actions/runs/35261259265)
+passed 75 tests on each of Windows and Linux, 63 on Mac, the native Linux PTY
+integration and the existing universal Mac build/package checks. CI produced
+development ZIP/tar packages with their Swift runtime dependencies and checksums.
+
+The Windows package ran on Windows 11 Home (10.0.26200) without Swift installed. Q
+identified itself on COM9 as `Q-386661B2F180`, firmware `0.2.2`, protocol `1`.
+The `test` command received acknowledgements for red, green, blue, white and
+traffic scenes and exited successfully. A 90-second watch captured short press,
+long press and release twice. Physically unplugging/replugging USB produced a
+disconnect and successful reconnection to the same stable ID. A competing
+`status` process was denied access while watch owned the port.
+
+The Linux package ran on Ubuntu 24.04.3 under WSL without Swift installed and
+passed the PTY integration using the packaged launcher. This exercises native
+termios I/O, all five gesture messages, heartbeat, scene acknowledgements,
+cleanup and exclusive access, but is not a physical Linux USB test.
+
+The final code revision, [`de34b2a`](https://github.com/frozono9/Q/actions/runs/35262685101),
+passed the same CI matrix and regenerated both packages. It writes each JSON
+event directly to stdout so a consuming process receives it immediately; the
+Linux PTY test now checks delivery while watch is still running. It also reports
+failure to confirm the off scene during cleanup.
+
+P1 is not fully signed off: physical USB on native Linux, hardware double/triple
+press, suspend/resume and heartbeat-loss recovery still need recorded results.
+Mac interactive hardware validation also remains pending. These packages are
+experimental CLI clients; shared mode coordination, settings and UI are P2/P3.

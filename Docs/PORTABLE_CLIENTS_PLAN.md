@@ -1,7 +1,7 @@
 # Q: plan de clientes portables con macOS como plataforma principal
 
-Estado: P0 con validación automática completa; pendiente prueba manual Mac.
-Este documento no implica clientes Windows/Linux ya disponibles.
+Estado: P0 con validación automática completa; P1 implementado con CLI experimental
+Windows/Linux y pruebas reales en Windows. Pendientes USB real en Linux y prueba manual Mac.
 Fecha: 17 de septiembre de 2026.
 Rama: `feature/portable-clients`.
 Base inspeccionada: `5c7a1e5c6a48c661d4dde22840372fe246af5884`.
@@ -14,13 +14,14 @@ principal, su interfaz nativa, sus integraciones y su calendario de publicación
 
 El trabajo inicial se desarrolla en esta rama y en un worktree separado.
 Publicar la rama no autoriza fusionarla en `main`. La entrega inicial añadió
-únicamente el plan. El seguimiento de P0 está en [PORTABLE_CORE.md](PORTABLE_CORE.md).
+únicamente el plan. El seguimiento de P0 está en [PORTABLE_CORE.md](PORTABLE_CORE.md)
+y el uso y la validación de P1 en [PORTABLE_CLI.md](PORTABLE_CLI.md).
 
 No se promete paridad inmediata entre sistemas ni que una compilación automática
 adapte funciones exclusivas de macOS. Compartir lógica reduce trabajo repetido;
 las interfaces y las integraciones de cada sistema siguen necesitando desarrollo.
 
-## 2. Punto de partida comprobado
+## 2. Punto de partida comprobado (antes de P0/P1)
 
 - `Package.swift` define `QCore` con `Sources/Q/Models` y `Sources/Q/Device`.
 - Los modelos y `QSerialProtocol.swift` usan Foundation y son candidatos a
@@ -248,8 +249,13 @@ portable al uso normal de la aplicación Mac.
 - [x] Ejecutar pruebas de modelos y protocolo en los tres sistemas.
 - [x] Revisar el diff Mac y documentar la decisión de arquitectura de P0.
 - [ ] Completar prueba manual de la aplicación Mac con Q conectado.
-- [ ] Implementar CLI y transporte de Windows, seguido del de Linux.
-- [ ] Registrar pruebas reales del aparato y continuar con P2.
+- [x] Implementar CLI y transporte de Windows, seguido del de Linux.
+- [x] Registrar sesión real Windows: identidad, escenas aceptadas, pulsación corta,
+  pulsación larga y liberación, retirada/reconexión y exclusividad del puerto.
+- [x] Probar el adaptador Linux con PTY y paquetes sin compilador Swift instalado.
+- [ ] Completar sesión con USB real en Linux; verificar también suspensión y
+  recuperación, pérdida de heartbeat y gestos doble/triple con hardware.
+- [ ] Cerrar validación de P1 y continuar con P2 (modos y ajustes compartidos).
 
 No se empezará una migración de UI ni un servicio permanente antes de cerrar P0.
 No se fusionará esta rama ni se publicarán cambios en `main` como parte de la

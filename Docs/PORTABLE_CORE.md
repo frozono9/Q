@@ -2,7 +2,8 @@
 
 This branch makes the existing Q models and serial protocol available to Swift
 on Windows and Linux while keeping the Mac application and its source paths.
-It does not yet provide a Windows/Linux application or serial transport.
+P0 established this boundary; P1 now adds an experimental Windows/Linux CLI and
+serial transport, documented in [PORTABLE_CLI.md](PORTABLE_CLI.md).
 
 ## Decision: compose the existing module by host
 
@@ -45,7 +46,7 @@ swift build --configuration release
 ```
 
 On Mac, the last command also builds Q, QDeviceWatcher and QClaudeHook. On
-Windows/Linux it builds the shared library; there is no Q executable yet.
+Windows/Linux it now also builds the P1 `q` CLI executable.
 These development prerequisites are not the eventual end-user install flow.
 
 ## CI and baseline
@@ -102,6 +103,6 @@ not a portable client release or a hardware certification.
 The automated P0 checks are complete. The Mac hardware/interactive smoke test
 in the implementation plan still needs a person with a Mac and Q; no physical
 Mac session was available here. P0 is not fully signed off until that result
-is recorded. The next implementation phase is P1: transport and CLI, not a UI
-rewrite. Windows 11 hardware testing, Linux hardware testing, portable UI and
-end-user packages remain outstanding.
+is recorded. P1 transport and CLI have since been implemented and tested with
+hardware on Windows; see [P1 validation](PORTABLE_CLI.md#validation-record).
+Linux physical USB testing, portable UI and release distribution remain outstanding.
