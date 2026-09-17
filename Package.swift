@@ -40,6 +40,25 @@ let appProducts: [Product] = []
 let appTargets: [Target] = []
 #endif
 
+#if os(Windows) || os(Linux)
+let portableProducts: [Product] = [.executable(name: "q", targets: ["QCLI"])]
+let portableTargets: [Target] = [
+    .target(
+        name: "QSerialNative",
+        linkerSettings: [
+            .linkedLibrary("setupapi", .when(platforms: [.windows])),
+            .linkedLibrary("advapi32", .when(platforms: [.windows]))
+        ]
+    ),
+    .target(name: "QPortable", dependencies: ["QCore", "QSerialNative"]),
+    .executableTarget(name: "QCLI", dependencies: ["QPortable", "QCore", "QSerialNative"]),
+    .testTarget(name: "QPortableTests", dependencies: ["QPortable", "QCore"])
+]
+#else
+let portableProducts: [Product] = []
+let portableTargets: [Target] = []
+#endif
+
 let package = Package(
     name: "Q",
     platforms: [
@@ -47,7 +66,7 @@ let package = Package(
     ],
     products: [
         .library(name: "QCore", targets: ["QCore"])
-    ] + appProducts,
+    ] + appProducts + portableProducts,
     targets: [
         .target(
             name: "QCore",
@@ -61,5 +80,5 @@ let package = Package(
             path: "Tests/QTests",
             exclude: testExcludes
         )
-    ] + appTargets
+    ] + appTargets + portableTargets
 )
