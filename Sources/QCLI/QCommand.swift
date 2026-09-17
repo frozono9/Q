@@ -15,8 +15,11 @@ struct QCommand {
     }
 
     static func json(_ values: [String: Any]) {
-        if let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
-           let line = String(data: data, encoding: .utf8) { print(line) }
+        if let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]) {
+            // A watch piped to another process must deliver each event now,
+            // rather than waiting for stdio's buffer to fill or the CLI to exit.
+            try? FileHandle.standardOutput.write(contentsOf: data + Data([10]))
+        }
     }
 
     static func hold(_ client: QClient, seconds: Double?) {
@@ -39,7 +42,10 @@ struct QCommand {
         client.onConnection = { message($0) }
         client.onButton = { json(["event": "button", "gesture": $0.rawValue]) }
         defer {
-            if client.scene != nil, client.session != nil { try? client.apply(.idle) }
+            if client.scene != nil, client.session != nil {
+                do { try client.apply(.idle) }
+                catch { message("Could not confirm LEDs off: \(error.localizedDescription)") }
+            }
             client.close()
         }
         try client.connect()

@@ -81,6 +81,8 @@ device = Device()
 first = subprocess.Popen([sys.argv[1], "watch", "--seconds", "3", "--port", device.path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 try:
     assert device.hello.wait(timeout=5)
+    assert select.select([first.stdout], [], [], 1.5)[0], "Button JSON was buffered until process exit"
+    assert json.loads(first.stdout.readline())["event"] == "button"
     second = subprocess.run([sys.argv[1], "status", "--port", device.path], capture_output=True, text=True, timeout=5)
     assert second.returncode != 0, "A second process acquired the busy port"
     first.communicate(timeout=10)
@@ -91,4 +93,4 @@ finally:
         first.communicate()
     device.close()
 
-print("Linux PTY integration passed: fragmented handshake, all gestures, heartbeat, scenes, cleanup and exclusive access")
+print("Linux PTY integration passed: fragmented handshake, live gesture stream, heartbeat, scenes, cleanup and exclusive access")
