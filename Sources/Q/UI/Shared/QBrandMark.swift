@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 enum QBrandAssets {
     static let logo = image(named: "QLogo", extension: "png")
     static let menuBarImage = image(named: "QMenuBarTemplate", extension: "png")

@@ -56,7 +56,7 @@ final class LocalMeetingIntegration {
                     lastSnapshot = snapshot
                     onUpdate(snapshot)
                     logger.notice(
-                        "\(provider.name, privacy: .public) available=\(snapshot.isAvailable) state=\(String(describing: snapshot.state), privacy: .public)"
+                        "\(self.provider.name, privacy: .public) available=\(snapshot.isAvailable) state=\(String(describing: snapshot.state), privacy: .public)"
                     )
                 }
                 try? await Task.sleep(for: .seconds(2))
