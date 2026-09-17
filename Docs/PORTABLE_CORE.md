@@ -84,6 +84,24 @@ matching classified Spanish "Desactivar micrófono" as "Activar micrófono".
 Microphone phrases now match at word boundaries; the existing failing assertion
 is retained and additional tests cover opposite actions with shortcut suffixes.
 
-P0 remains incomplete until successful runs are recorded and the Mac hardware/
-interactive smoke test in the implementation plan is completed. The next
-implementation phase is P1: transport and CLI, not a UI rewrite.
+The [successful validation run](https://github.com/frozono9/Q/actions/runs/35246362606)
+tested commit `8da41c0206453865d590afbcedd98f8f74eb87f8` on 17 September 2026:
+
+| Check | Result |
+| --- | --- |
+| macOS 15 arm64, Swift 6.1.2 | Core build, 63 tests and optimized app products passed |
+| Ubuntu 24.04 x86_64, Swift 6.1.2 | Core build, 60 tests and optimized library build passed |
+| Windows Server 2022 x64, Swift 6.1.2 | Core build, 60 tests and optimized library build passed |
+| Existing Mac direct-compiler script | Built universal arm64 + x86_64 binaries |
+| Existing Mac app packaging | Q.app packaged; both architectures and ad-hoc signature verified |
+
+The three-test difference is the existing Mac virtual-device suite. No model or
+protocol test was removed to get a passing run. These are build/test results,
+not a portable client release or a hardware certification.
+
+The automated P0 checks are complete. The Mac hardware/interactive smoke test
+in the implementation plan still needs a person with a Mac and Q; no physical
+Mac session was available here. P0 is not fully signed off until that result
+is recorded. The next implementation phase is P1: transport and CLI, not a UI
+rewrite. Windows 11 hardware testing, Linux hardware testing, portable UI and
+end-user packages remain outstanding.

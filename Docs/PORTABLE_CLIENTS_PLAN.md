@@ -1,6 +1,7 @@
 # Q: plan de clientes portables con macOS como plataforma principal
 
-Estado: P0 en implementación; este documento no implica soporte ya disponible.
+Estado: P0 con validación automática completa; pendiente prueba manual Mac.
+Este documento no implica clientes Windows/Linux ya disponibles.
 Fecha: 17 de septiembre de 2026.
 Rama: `feature/portable-clients`.
 Base inspeccionada: `5c7a1e5c6a48c661d4dde22840372fe246af5884`.
@@ -242,10 +243,11 @@ portable al uso normal de la aplicación Mac.
 
 ## 8. Primer bloque de trabajo
 
-- [ ] Registrar baseline de compilación/tests Mac y disponibilidad de entornos.
-- [ ] Diseñar y probar la separación mínima de fuentes/targets compartibles.
-- [ ] Ejecutar pruebas de modelos y protocolo en los tres sistemas.
-- [ ] Revisar el diff Mac y documentar la decisión de arquitectura de P0.
+- [x] Registrar baseline de compilación/tests Mac y disponibilidad de entornos.
+- [x] Diseñar y probar la separación mínima de fuentes/targets compartibles.
+- [x] Ejecutar pruebas de modelos y protocolo en los tres sistemas.
+- [x] Revisar el diff Mac y documentar la decisión de arquitectura de P0.
+- [ ] Completar prueba manual de la aplicación Mac con Q conectado.
 - [ ] Implementar CLI y transporte de Windows, seguido del de Linux.
 - [ ] Registrar pruebas reales del aparato y continuar con P2.
 
