@@ -63,6 +63,25 @@ jobs:
         run: swift test
       - name: Compile optimized products
         run: swift build --configuration release
+      - name: Exercise Linux native serial I/O with a pseudo-terminal
+        if: runner.os == 'Linux'
+        run: python3 Scripts/test-portable-pty.py "$(swift build --configuration release --show-bin-path)/q"
+      - name: Package Windows development CLI
+        if: runner.os == 'Windows'
+        run: ./Scripts/package-portable.ps1
+      - name: Package Linux development CLI
+        if: runner.os == 'Linux'
+        run: sh Scripts/package-portable-linux.sh
+      - name: Upload development CLI (not a release)
+        if: runner.os != 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: q-cli-${{ runner.os }}-${{ github.sha }}
+          path: |
+            .build/packages/*.zip
+            .build/packages/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
 
   mac-regression:
     name: Mac existing build scripts

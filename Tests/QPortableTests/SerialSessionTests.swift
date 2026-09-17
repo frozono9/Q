@@ -14,6 +14,7 @@ private final class FakeSerial: SerialIO {
     var writes = [String]()
     var identity: String
     var acknowledge = true
+    var answerHello = true
     var reject = false
     var failRead = false
     var closed = false
@@ -28,7 +29,7 @@ private final class FakeSerial: SerialIO {
     func write(_ data: Data) throws {
         let line = String(decoding: data, as: UTF8.self)
         writes.append(line)
-        if line.hasPrefix("H|") { incoming.append(Data(identity.utf8)) }
+        if line.hasPrefix("H|"), answerHello { incoming.append(Data(identity.utf8)) }
         if line.hasPrefix("S|") {
             if reject { incoming.append(Data("E|scene\n".utf8)) }
             else if acknowledge { incoming.append(Data("A|scene\n".utf8)) }
@@ -57,6 +58,24 @@ struct SerialSessionTests {
         let session = SerialSession(path: "test", io: io, now: clock.now)
         #expect(throws: QTransportError.self) { try session.handshake() }
         #expect(!io.writes.contains { $0.hasPrefix("S|") })
+    }
+
+    @Test func silentDeviceTimesOutWithoutSendingScenes() {
+        let clock = Clock()
+        let io = FakeSerial(clock)
+        io.answerHello = false
+        let session = SerialSession(path: "test", io: io, now: clock.now)
+        #expect(throws: QTransportError.self) { try session.handshake(timeout: 2) }
+        #expect(clock.time >= 2 && clock.time < 2.2)
+        #expect(!io.writes.contains { $0.hasPrefix("S|") })
+    }
+
+    @Test func legacyIdentityWithoutStableIDIsNotSelected() {
+        let clock = Clock()
+        let io = FakeSerial(clock)
+        io.identity = "Q|1\n"
+        let session = SerialSession(path: "test", io: io, now: clock.now)
+        #expect(throws: QTransportError.self) { try session.handshake() }
     }
 
     @Test func heartbeatsAndAllButtonEventsWhileWaitingForAck() throws {
@@ -94,6 +113,19 @@ struct SerialSessionTests {
         _ = try session.handshake()
         io.reject = true
         #expect(throws: QTransportError.self) { try session.apply(.working) }
+    }
+
+    @Test func uncertainSceneAcknowledgementClosesClientSession() throws {
+        let clock = Clock()
+        let io = FakeSerial(clock)
+        let client = QClient(selection: QSelection(), now: clock.now) { _ in
+            let session = SerialSession(path: "test", io: io, now: clock.now)
+            _ = try session.handshake(); return session
+        }
+        try client.connect()
+        io.acknowledge = false
+        #expect(throws: QTransportError.self) { try client.apply(.working) }
+        #expect(client.session == nil && io.closed && client.scene == nil)
     }
 
     @Test func aDeviceResetInvalidatesTheSession() throws {
