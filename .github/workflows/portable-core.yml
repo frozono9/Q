@@ -65,21 +65,13 @@ jobs:
         run: swift build --configuration release
 
   mac-regression:
-    name: Mac baseline and existing build scripts
+    name: Mac existing build scripts
     runs-on: macos-15
     timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Check out the unmodified P0 baseline
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: 5c7a1e5c6a48c661d4dde22840372fe246af5884
-          path: .build/p0-baseline
-      - name: Test original Mac sources
-        working-directory: .build/p0-baseline
-        run: swift test
       - name: Compile current universal binaries with the existing fallback
         run: sh Scripts/build-local.sh release
       - name: Package and verify the existing Mac app

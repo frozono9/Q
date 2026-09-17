@@ -15,11 +15,16 @@ The `QDevice` contract, `QDeviceError`, button events, `QSerialProtocol` and eve
 model compile from the same files. There are no copied models, new runtime
 dependencies, public API renames or edits to Mac UI/integration sources.
 `Scripts/build-local.sh` still compiles the same source directories directly.
+The Mac serial adapter has one compiler-compatibility fix: three explicit
+`self.` references in the heartbeat error closure, with unchanged behavior.
 
 All existing model/resolver/protocol tests run on every host. The three tests
 in `VirtualQDeviceTests.swift` remain enabled on Mac; the other hosts exclude
 that file because the current virtual device uses Combine and OSLog. This does
 not replace future tests for Windows/Linux device implementations.
+The hold-lifecycle tests evaluate mutating operations before passing results to
+Testing macros; Swift 6.1.2 cannot expand the original direct `#require` calls.
+The operations and assertions remain the same.
 
 This is a small first boundary, not the final application architecture. Mac
 still has device adapters in QCore, and application coordination still lives
@@ -51,9 +56,8 @@ between 6.0 and the latest release has been tested.
 
 The matrix uses Ubuntu 24.04, Windows Server 2022 and macOS 15 hosted runners.
 It builds the core, executes tests and builds optimized products. A separate
-Mac job tests original commit `5c7a1e5`, then builds the current universal
-binaries with the unchanged direct-compiler fallback, packages Q.app and checks
-both architectures and the ad-hoc signature.
+Mac job builds the current universal binaries with the unchanged direct-compiler
+fallback, packages Q.app and checks both architectures and the ad-hoc signature.
 
 Windows Server CI validates compilation and tests, not the Windows 11 end-user
 experience. Linux CI similarly does not establish desktop or hardware support.
@@ -63,9 +67,15 @@ changes main or changes repository protection settings.
 ## Validation status
 
 At implementation time, the local Windows workstation and its Ubuntu WSL
-distribution did not have Swift installed. Validation is delegated to the
-workflow, with results to be recorded after execution. Writing the workflow
-alone is not evidence of a passing build.
+distribution did not have Swift installed. Validation runs on GitHub Actions.
+
+The first run tested original commit `5c7a1e5` separately and demonstrated an
+existing Mac compile failure under Swift 6.1.2: `SerialQDevice.swift:202-204`
+requires explicit `self` after a weak capture in its nested heartbeat task.
+The same diagnostics appeared on the portable branch before the fix. See the
+[baseline run](https://github.com/frozono9/Q/actions/runs/35245506474).
+The original baseline is not repeatedly tested in subsequent runs; those runs
+validate the current branch, including the minimal fix. No change was made to main.
 
 P0 remains incomplete until successful runs are recorded and the Mac hardware/
 interactive smoke test in the implementation plan is completed. The next

@@ -199,9 +199,9 @@ public final class SerialQDevice: ObservableObject, QDevice {
             } catch {
                 let reason = error.localizedDescription
                 Task { @MainActor [weak self] in
-                    guard let self, isConnected else { return }
-                    logger.error("Q heartbeat failed: \(reason, privacy: .public)")
-                    disconnectNow()
+                    guard let self, self.isConnected else { return }
+                    self.logger.error("Q heartbeat failed: \(reason, privacy: .public)")
+                    self.disconnectNow()
                 }
             }
         }
