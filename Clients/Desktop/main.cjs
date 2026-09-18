@@ -33,7 +33,7 @@ else {
       ? path.join(process.resourcesPath, 'engine', process.platform === 'win32' ? 'q.exe' : 'q')
       : process.env.Q_ENGINE_PATH;
     panel = new BrowserWindow({
-      width: 340, height: 530, minWidth: 320, minHeight: 440, useContentSize: true,
+      width: 340, height: Math.min(580, screen.getPrimaryDisplay().workArea.height - 60), minWidth: 320, minHeight: 420, useContentSize: true,
       title: 'Q', resizable: true, show: false, autoHideMenuBar: true,
       backgroundColor: '#f6f6f8', icon: path.join(__dirname, 'ui', 'QLogo.png'),
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
@@ -69,7 +69,11 @@ else {
       port: !app.isPackaged ? process.env.Q_ENGINE_PORT : undefined
     });
     engine.on('snapshot', () => { problem = ''; publish(); });
-    engine.on('problem', message => { problem = message; publish(); });
+    engine.on('problem', message => {
+      problem = message;
+      if (engine.latest) engine.latest = { ...engine.latest, connected: false, applied: false };
+      publish();
+    });
     engine.start();
   });
   app.on('window-all-closed', () => app.quit());

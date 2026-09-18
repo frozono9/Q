@@ -15,4 +15,6 @@ int q_serial_write(q_serial_port *port, const uint8_t *bytes, size_t count,
 void q_serial_close(q_serial_port *port);
 void q_install_interrupt_handler(void);
 int q_interrupted(void);
+// One blocking pipe read; returns available bytes, EOF (0), or error (-1).
+int q_stdin_read(uint8_t *bytes, size_t capacity);
 #endif

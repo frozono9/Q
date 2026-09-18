@@ -29,6 +29,12 @@ static BOOL WINAPI on_interrupt(DWORD type) {
 }
 void q_install_interrupt_handler(void) { SetConsoleCtrlHandler(on_interrupt, TRUE); }
 int q_interrupted(void) { return InterlockedCompareExchange(&interrupted, 0, 0) != 0; }
+int q_stdin_read(uint8_t *bytes, size_t capacity) {
+    DWORD count = 0;
+    if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE), bytes, (DWORD)capacity, &count, NULL))
+        return GetLastError() == ERROR_BROKEN_PIPE ? 0 : -1;
+    return (int)count;
+}
 static int system_error(const char *action, char *error, size_t size) {
     DWORD code = GetLastError();
     char message[256] = {0};
@@ -227,5 +233,10 @@ int q_serial_write(q_serial_port *port, const uint8_t *bytes, size_t count, char
 }
 void q_serial_close(q_serial_port *port) {
     if (port) { ioctl(port->fd, TIOCNXCL); close(port->fd); free(port); }
+}
+int q_stdin_read(uint8_t *bytes, size_t capacity) {
+    ssize_t count;
+    do { count = read(STDIN_FILENO, bytes, capacity); } while (count < 0 && errno == EINTR);
+    return (int)count;
 }
 #endif

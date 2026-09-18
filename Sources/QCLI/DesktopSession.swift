@@ -18,9 +18,13 @@ private final class InputMailbox: @unchecked Sendable {
     func read() {
         var pending = Data()
         defer { lock.lock(); finished = true; lock.unlock() }
-        do {
-            while let data = try FileHandle.standardInput.read(upToCount: 4096), !data.isEmpty {
-                for byte in data {
+        // Foundation read(upToCount:) may wait to fill the requested count on
+        // pipes. Native read returns immediately after each available command.
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+                let count = q_stdin_read(&buffer, buffer.count)
+                if count <= 0 { return }
+                for byte in buffer.prefix(Int(count)) {
                     if byte == 10 {
                         lock.lock()
                         if lines.count >= 64 { lock.unlock(); return }
@@ -30,8 +34,7 @@ private final class InputMailbox: @unchecked Sendable {
                         pending.append(byte)
                     }
                 }
-            }
-        } catch { return }
+        }
     }
     func take() -> ([Data], Bool) {
         lock.lock(); defer { lock.unlock() }
