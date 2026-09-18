@@ -21,7 +21,6 @@ test('real desktop and engine save availability, survive restart and close clean
     await page.getByRole('button', { name: 'Busy / DND', exact: false }).click();
     await page.waitForFunction(() => document.querySelector('#state-name').textContent === 'Busy / DND');
     await page.locator('#brightness').fill('42');
-    await page.locator('#brightness').dispatchEvent('change');
     await page.waitForFunction(() => document.querySelector('#brightness-value').value === '42%');
     // Wait for the acknowledgement from the engine, not optimistic renderer state.
     await page.waitForFunction(async () => (await window.q.snapshot()).brightness === .42);
