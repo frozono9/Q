@@ -2,12 +2,13 @@ import Foundation
 import QCore
 
 public struct CLIOptions {
-    public enum Command: String { case help, list, status, lights, off, watch, test }
+    public enum Command: String { case help, list, status, lights, off, watch, test, serve }
     public let command: Command
     public var selection = QSelection()
     public var seconds: Double?
     public var brightness = 0.7
     public var color = "white"
+    public var settingsPath: String?
 
     public init(_ arguments: [String]) throws {
         guard let first = arguments.first else { command = .help; return }
@@ -19,10 +20,13 @@ public struct CLIOptions {
         var seen = Set<String>()
         while !rest.isEmpty {
             let flag = rest.removeFirst()
-            guard ["--port", "--id", "--seconds", "--brightness"].contains(flag), seen.insert(flag).inserted,
+            guard ["--port", "--id", "--seconds", "--brightness", "--settings"].contains(flag), seen.insert(flag).inserted,
                   !rest.isEmpty else { throw QTransportError.message("Unknown, repeated or incomplete option: \(flag)") }
             let value = rest.removeFirst()
             switch flag {
+            case "--settings":
+                guard command == .serve, !value.isEmpty else { throw QTransportError.message("--settings is required for serve only") }
+                settingsPath = value
             case "--port":
                 guard !value.isEmpty else { throw QTransportError.message("Port must not be empty") }
                 selection.port = value
@@ -46,6 +50,7 @@ public struct CLIOptions {
             throw QTransportError.message("This command does not take options")
         }
         if command == .lights { _ = try scene() }
+        if command == .serve, settingsPath == nil { throw QTransportError.message("serve requires --settings <absolute file path>") }
     }
 
     public func scene() throws -> QScene {
@@ -77,6 +82,7 @@ public struct CLIOptions {
       q off                         Keep LEDs off until Ctrl+C
       q watch [--seconds 30]         Print physical button events as JSON
       q test                        Red, green, blue, white and traffic test
+      q serve --settings <path>     Desktop client JSON-lines session (IPC v1)
 
     Selection: --port COM9 (Windows) or /dev/ttyACM0 (Linux), --id Q-...
     Brightness: --brightness 0...1 for lights/test (default 0.7).

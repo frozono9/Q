@@ -10,6 +10,8 @@ on:
       - Scripts/**
       - Config/**
       - Resources/**
+      - Clients/Desktop/**
+      - Docs/PORTABLE_DESKTOP.md
       - .github/workflows/portable-core.yml
   pull_request:
     branches: [main, feature/portable-clients]
@@ -20,6 +22,8 @@ on:
       - Scripts/**
       - Config/**
       - Resources/**
+      - Clients/Desktop/**
+      - Docs/PORTABLE_DESKTOP.md
       - .github/workflows/portable-core.yml
   workflow_dispatch:
 
@@ -72,6 +76,41 @@ jobs:
       - name: Package Linux development CLI
         if: runner.os == 'Linux'
         run: sh Scripts/package-portable-linux.sh
+      - name: Exercise desktop engine against Linux serial hardware emulator
+        if: runner.os == 'Linux'
+        run: python3 Scripts/test-desktop-protocol.py .build/packages/q-linux-x86_64/q
+      - name: Set up Node for portable desktop
+        if: runner.os != 'macOS'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install desktop dependencies
+        if: runner.os != 'macOS'
+        working-directory: Clients/Desktop
+        run: npm ci --no-fund
+      - name: Test desktop on Windows
+        if: runner.os == 'Windows'
+        working-directory: Clients/Desktop
+        shell: pwsh
+        run: |
+          $env:Q_ENGINE_PATH = Join-Path $env:GITHUB_WORKSPACE '.build/packages/q-windows-x64/q.exe'
+          npm test
+      - name: Test desktop on Linux
+        if: runner.os == 'Linux'
+        working-directory: Clients/Desktop
+        run: Q_ENGINE_PATH="$GITHUB_WORKSPACE/.build/packages/q-linux-x86_64/q" xvfb-run -a npm test
+      - name: Package portable desktop
+        if: runner.os != 'macOS'
+        working-directory: Clients/Desktop
+        run: npm run package
+      - name: Upload desktop screenshots
+        if: always() && runner.os != 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: q-desktop-checks-${{ runner.os }}-${{ github.sha }}
+          path: Clients/Desktop/test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload development CLI (not a release)
         if: runner.os != 'macOS'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

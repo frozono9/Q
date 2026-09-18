@@ -5,3 +5,6 @@ DerivedData/
 Dist/
 *.xcuserstate
 .DS_Store
+Clients/Desktop/node_modules/
+Clients/Desktop/out/
+Clients/Desktop/test-results/

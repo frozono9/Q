@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Q</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><img src="QLogo.png" alt="Q" width="24" height="24"><h1 id="page-title">Availability</h1><span id="connection" class="connection">Connecting…</span></header>
+<main>
+  <div id="error" role="alert" hidden></div>
+  <section id="home">
+    <div class="status"><div><h2 id="state-name">Available</h2><p id="state-detail">Your status, at a glance.</p></div><div id="leds" aria-label="Three Q lights"><i></i><i></i><i></i></div></div>
+    <button id="press" class="action"><span class="action-icon">↻</span><span id="action-name">Switch to Focus</span><span class="arrow">→</span></button>
+    <p id="gesture" class="gesture" aria-live="polite">Same action as pressing Q.</p>
+    <h3>SET AVAILABILITY</h3><div id="states" role="group" aria-label="Availability"></div>
+    <div class="brightness"><label for="brightness">Brightness</label><output id="brightness-value" for="brightness">85%</output></div>
+    <input id="brightness" type="range" min="10" max="100" value="85" aria-label="Brightness">
+    <p id="delivery" class="hint" aria-live="polite">Waiting for Q…</p>
+  </section>
+  <section id="settings" hidden>
+    <h2>Your Q</h2><p class="hint">Connect Q with a USB data cable.</p>
+    <dl><dt>Connection</dt><dd id="device-status">Waiting</dd><dt>Device</dt><dd id="device-id">—</dd><dt>Firmware</dt><dd id="firmware">—</dd><dt>Port</dt><dd id="port">—</dd></dl>
+    <h3>CHECK YOUR Q</h3><button id="test" class="secondary">Test lights</button><p id="test-status" class="hint">Red, green, blue, white and traffic; then your selected status returns.</p>
+    <div class="button-check"><strong>Button test</strong><p id="button-test" aria-live="polite">Press, double-press or hold Q to see its gesture here. A single press also changes availability.</p></div>
+    <h3>AVAILABLE IN THIS PREVIEW</h3><p class="hint">Manual availability and brightness. Your choices are saved automatically.</p>
+    <p class="hint">Pomodoro, Relaxing, custom modes and connected-app integrations are coming in later blocks.</p>
+  </section>
+</main>
+<footer><button id="settings-toggle">⚙ <span>Settings</span></button><span class="footer-label">Q portable · Preview</span><button id="quit" aria-label="Quit Q" title="Quit Q">⏻</button></footer>
+<script src="renderer.js"></script></body></html>

@@ -33,6 +33,7 @@ struct QCommand {
     static func run() throws {
         var options = try CLIOptions(Array(CommandLine.arguments.dropFirst()))
         if options.command == .help { print(CLIOptions.help); return }
+        if options.command == .serve { try DesktopSession(options: options).run(); return }
         if options.command == .list {
             let ports = try NativeSerialIO.candidates()
             json(["candidates": ports]); return

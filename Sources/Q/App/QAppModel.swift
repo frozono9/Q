@@ -113,7 +113,7 @@ final class QAppModel: ObservableObject {
     private static let deviceBrightnessKey = "QDeviceBrightness"
     private static let deviceNamesKey = "QDeviceNames"
     private static let meetingProviderSelectionKey = "QMeetingProviderSelection"
-    private static let presetReferenceBrightness = 0.85
+    private static let presetReferenceBrightness = QAvailability.referenceBrightness
 
     static let setupCompletedKey = "QSetupCompleted"
 
@@ -1383,11 +1383,10 @@ final class QAppModel: ObservableObject {
     }
 
     private func cyclePrimaryAvailabilityState() {
-        let cycle = ["available", "focus", "busy"]
         guard selectedMode == .availability,
-              let currentIndex = cycle.firstIndex(of: selectedStateID) else { return }
+              let next = QAvailability.nextPrimaryStateID(after: selectedStateID) else { return }
         availabilityControlMode = .manual
-        applyState(withID: cycle[(currentIndex + 1) % cycle.count])
+        applyState(withID: next)
     }
 
     private func applyState(matching state: QState) {
@@ -1523,14 +1522,7 @@ final class QAppModel: ObservableObject {
     }
 
     private func sceneWithDeviceBrightness(_ scene: QScene) -> QScene {
-        let gain = deviceBrightness / Self.presetReferenceBrightness
-        var adjusted = scene
-        adjusted.leds = scene.leds.map { led in
-            var adjustedLED = led
-            adjustedLED.brightness = min(led.brightness * gain, 1)
-            return adjustedLED
-        }
-        return adjusted
+        QAvailability.scene(scene, brightness: deviceBrightness)
     }
 
     func quit() {
