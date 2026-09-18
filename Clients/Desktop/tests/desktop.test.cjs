@@ -23,7 +23,14 @@ test('real desktop and engine save availability, survive restart and close clean
     await page.locator('#brightness').fill('42');
     await page.waitForFunction(() => document.querySelector('#brightness-value').value === '42%');
     // Wait for the acknowledgement from the engine, not optimistic renderer state.
-    await page.waitForFunction(async () => (await window.q.snapshot()).brightness === .42);
+    await page.evaluate(async () => {
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline) {
+        if ((await window.q.snapshot()).brightness === .42) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error('Engine did not acknowledge saved brightness');
+    });
     const stored = JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'));
     assert.equal(stored.stateID, 'busy'); assert.equal(stored.brightness, .42);
     assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
