@@ -36,7 +36,7 @@ test('real desktop and engine save availability, survive restart and close clean
     assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
     await page.screenshot({ path: path.join(results, 'availability.png') });
     await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('heading', { name: 'Your Q' }).waitFor();
+    await page.getByRole('heading', { name: 'Your Q', exact: true }).waitFor();
     await page.screenshot({ path: path.join(results, 'settings.png') });
     let closed = app.waitForEvent('close');
     await page.getByRole('button', { name: 'Quit Q', exact: true }).click();
