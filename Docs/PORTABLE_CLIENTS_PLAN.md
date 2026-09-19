@@ -4,6 +4,8 @@ Estado: P0 con validación automática completa; P1 implementado con CLI experim
 Windows/Linux y pruebas reales en Windows. Pendientes USB real en Linux y prueba manual Mac.
 P2/P3 se desarrollan juntos por bloques: primero disponibilidad manual, brillo,
 persistencia y panel de escritorio inspirado en Mac; véase [PORTABLE_DESKTOP.md](PORTABLE_DESKTOP.md).
+Este primer bloque ya está implementado y probado con Q en Windows;
+la evidencia y los pendientes están en [PORTABLE_DESKTOP_VALIDATION.md](PORTABLE_DESKTOP_VALIDATION.md).
 Fecha: 17 de septiembre de 2026.
 Rama: `feature/portable-clients`.
 Base inspeccionada: `5c7a1e5c6a48c661d4dde22840372fe246af5884`.
