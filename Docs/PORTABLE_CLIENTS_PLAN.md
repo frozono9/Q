@@ -6,6 +6,8 @@ P2/P3 se desarrollan juntos por bloques: primero disponibilidad manual, brillo,
 persistencia y panel de escritorio inspirado en Mac; véase [PORTABLE_DESKTOP.md](PORTABLE_DESKTOP.md).
 Este primer bloque ya está implementado y probado con Q en Windows;
 la evidencia y los pendientes están en [PORTABLE_DESKTOP_VALIDATION.md](PORTABLE_DESKTOP_VALIDATION.md).
+La secuencia de Pomodoro, relajación, perfiles e integraciones está detallada en
+[PORTABLE_INTEGRATION_PLAN.md](PORTABLE_INTEGRATION_PLAN.md).
 Fecha: 17 de septiembre de 2026.
 Rama: `feature/portable-clients`.
 Base inspeccionada: `5c7a1e5c6a48c661d4dde22840372fe246af5884`.
