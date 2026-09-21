@@ -369,8 +369,15 @@ struct QMeetingAccessibilitySurface {
     private var microphoneToggleStates: [QMicrophoneState] = []
 
     init(processIdentifier: pid_t) {
-        let root = AXUIElementCreateApplication(processIdentifier)
-        collect(root)
+        let application = AXUIElementCreateApplication(processIdentifier)
+        for root in Self.traversalRoots(for: application) {
+            collect(root)
+        }
+    }
+
+    static func prepareDiscordAccessibility(processIdentifier: pid_t) {
+        let application = AXUIElementCreateApplication(processIdentifier)
+        enableManualAccessibility(for: application)
     }
 
     func meetingState(for kind: QMeetingSurfaceKind) -> QState? {
@@ -407,11 +414,40 @@ struct QMeetingAccessibilitySurface {
             }
             guard !roots.isEmpty else { return false }
         } else {
-            roots = [application]
+            roots = traversalRoots(for: application)
         }
         return roots.contains { root in
             pressMicrophoneButton(in: root, shouldMute: shouldMute)
         }
+    }
+
+    static func discordDeafenState(processIdentifier: pid_t) -> Bool? {
+        let application = AXUIElementCreateApplication(processIdentifier)
+        enableManualAccessibility(for: application)
+        var queue = traversalRoots(for: application).map { ($0, 0) }
+        var index = 0
+        while index < queue.count, index < 5_000 {
+            let (element, depth) = queue[index]
+            index += 1
+            let role = stringAttribute(kAXRoleAttribute, from: element)
+            if role == kAXButtonRole as String || role == kAXCheckBoxRole as String {
+                let label = controlLabel(for: element)
+                if role == kAXCheckBoxRole as String,
+                   let isOn = booleanAttribute(kAXValueAttribute, from: element),
+                   let state = QMeetingControlVocabulary.deafenToggleState(label: label, isOn: isOn) {
+                    return state
+                }
+                if let targetState = QMeetingControlVocabulary.deafenButtonTargetState(label: label) {
+                    return !targetState
+                }
+            }
+            guard depth < 32,
+                  let children = valueAttribute(kAXChildrenAttribute, from: element) as? [AXUIElement] else {
+                continue
+            }
+            queue.append(contentsOf: children.map { ($0, depth + 1) })
+        }
+        return nil
     }
 
     private static func pressMicrophoneButton(
@@ -449,13 +485,40 @@ struct QMeetingAccessibilitySurface {
                     return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
                 }
             }
-            guard depth < 16,
+            guard depth < 32,
                   let children = valueAttribute(kAXChildrenAttribute, from: element) as? [AXUIElement] else {
                 continue
             }
             queue.append(contentsOf: children.map { ($0, depth + 1) })
         }
         return false
+    }
+
+    private static func controlLabel(for element: AXUIElement) -> String {
+        [
+            stringAttribute(kAXTitleAttribute, from: element),
+            stringAttribute(kAXDescriptionAttribute, from: element),
+            stringAttribute(kAXHelpAttribute, from: element)
+        ].compactMap { $0 }.joined(separator: " ")
+    }
+
+    private static func traversalRoots(for application: AXUIElement) -> [AXUIElement] {
+        if let windows = valueAttribute(kAXWindowsAttribute, from: application) as? [AXUIElement],
+           !windows.isEmpty {
+            return windows
+        }
+        return [application]
+    }
+
+    /// Electron applications can keep their web accessibility tree disabled
+    /// until a third-party client explicitly requests it. Discord documents
+    /// this application attribute through Electron's accessibility support.
+    private static func enableManualAccessibility(for application: AXUIElement) {
+        _ = AXUIElementSetAttributeValue(
+            application,
+            "AXManualAccessibility" as CFString,
+            kCFBooleanTrue
+        )
     }
 
     static func raiseMeetingWindow(
@@ -516,7 +579,7 @@ struct QMeetingAccessibilitySurface {
                 }
             }
 
-            guard depth < 16,
+            guard depth < 32,
                   let children = valueAttribute(kAXChildrenAttribute, from: element) as? [AXUIElement] else {
                 continue
             }

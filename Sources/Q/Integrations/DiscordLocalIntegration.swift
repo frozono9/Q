@@ -9,6 +9,14 @@ struct DiscordIntegrationSnapshot: Sendable {
     var isDiscordRunning: Bool
 }
 
+enum DiscordDeafenControlResult: Equatable, Sendable {
+    case confirmed(Bool)
+    case sentUnconfirmed
+    case unavailable
+    case permissionDenied
+    case failed
+}
+
 actor DiscordLogScanner {
     private let fileManager = FileManager.default
     private var byteOffset: UInt64 = 0
@@ -76,6 +84,7 @@ final class DiscordLocalIntegration {
     private var monitoringTask: Task<Void, Never>?
     private var lastSnapshot: DiscordIntegrationSnapshot?
     private var lastRequestedMicrophoneState: QMicrophoneState?
+    private var lastRequestedDeafenedState: Bool?
 
     var canControlDiscord: Bool {
         AXIsProcessTrusted()
@@ -93,6 +102,7 @@ final class DiscordLocalIntegration {
                 )
                 if snapshot.state == .available {
                     lastRequestedMicrophoneState = nil
+                    lastRequestedDeafenedState = nil
                 }
                 if snapshot.state != lastSnapshot?.state ||
                     snapshot.isDiscordRunning != lastSnapshot?.isDiscordRunning {
@@ -151,6 +161,9 @@ final class DiscordLocalIntegration {
         }
 
         let desired: QMicrophoneState = shouldMute ? .muted : .unmuted
+        let restoreApplication = await activateForReliableControl(application)
+        defer { restoreFocus(to: restoreApplication, afterControlling: application) }
+
         let before = await observedMicrophoneState()
         logger.notice(
             "Control requested desired=\(desired.rawValue, privacy: .public) observed=\(before.rawValue, privacy: .public)"
@@ -160,19 +173,15 @@ final class DiscordLocalIntegration {
             return .confirmed(desired)
         }
 
-        let pressed = await Task.detached(priority: .userInitiated) {
-            QMeetingAccessibilitySurface.pressMicrophoneButton(
-                processIdentifier: application.processIdentifier,
-                shouldMute: shouldMute
-            )
-        }.value
-        if !pressed {
-            // Target Discord itself. This avoids stealing focus and removes
-            // the race between activation and Electron accepting its shortcut.
-            guard Self.postMuteShortcut(to: application.processIdentifier) else { return .failed }
+        // Discord's AX switches sometimes report a successful press while the
+        // renderer silently ignores it. Its documented shortcut is reliable,
+        // provided Discord is verified frontmost before the event is posted.
+        guard await ensureFrontmost(application),
+              Self.postShortcut(keyCode: 46, flags: [.maskCommand, .maskShift]) else {
+            return .failed
         }
 
-        for _ in 0..<8 {
+        for _ in 0..<16 {
             try? await Task.sleep(for: .milliseconds(125))
             if await observedMicrophoneState() == desired {
                 lastRequestedMicrophoneState = desired
@@ -180,6 +189,46 @@ final class DiscordLocalIntegration {
             }
         }
         lastRequestedMicrophoneState = desired
+        return .sentUnconfirmed
+    }
+
+    func toggleDeafen() async -> DiscordDeafenControlResult {
+        guard let application = Self.runningDiscord else {
+            focusDiscord()
+            return .unavailable
+        }
+        guard lastSnapshot?.state == .meeting || lastSnapshot?.state == .muted else {
+            return .unavailable
+        }
+        guard AXIsProcessTrusted() else {
+            AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            return .permissionDenied
+        }
+
+        let restoreApplication = await activateForReliableControl(application)
+        defer { restoreFocus(to: restoreApplication, afterControlling: application) }
+
+        let before = await observedDeafenState()
+        let desired = !(before ?? lastRequestedDeafenedState ?? false)
+        logger.notice(
+            "Deafen requested desired=\(desired, privacy: .public) observed=\(String(describing: before), privacy: .public)"
+        )
+
+        // Never emit the shortcut until Discord owns focus. This is the key
+        // invariant that prevents another app receiving an "unknown command".
+        guard await ensureFrontmost(application),
+              Self.postShortcut(keyCode: 2, flags: [.maskCommand, .maskShift]) else {
+            return .failed
+        }
+
+        for _ in 0..<16 {
+            try? await Task.sleep(for: .milliseconds(125))
+            if await observedDeafenState() == desired {
+                lastRequestedDeafenedState = desired
+                return .confirmed(desired)
+            }
+        }
+        lastRequestedDeafenedState = desired
         return .sentUnconfirmed
     }
 
@@ -192,6 +241,67 @@ final class DiscordLocalIntegration {
         }.value
     }
 
+    private func observedDeafenState() async -> Bool? {
+        guard let application = Self.runningDiscord else { return nil }
+        return await Task.detached(priority: .utility) {
+            QMeetingAccessibilitySurface.discordDeafenState(
+                processIdentifier: application.processIdentifier
+            )
+        }.value
+    }
+
+    /// Discord's Electron renderer does not consistently expose its web AX
+    /// tree or consume shortcuts while it is in the background. Enable its
+    /// manual tree, activate it briefly, and return the app that should be
+    /// restored after the control operation.
+    private func activateForReliableControl(
+        _ application: NSRunningApplication
+    ) async -> NSRunningApplication? {
+        let processIdentifier = application.processIdentifier
+        await Task.detached(priority: .userInitiated) {
+            QMeetingAccessibilitySurface.prepareDiscordAccessibility(
+                processIdentifier: processIdentifier
+            )
+        }.value
+        let previous = NSWorkspace.shared.frontmostApplication
+        if previous?.processIdentifier == application.processIdentifier {
+            try? await Task.sleep(for: .milliseconds(500))
+            return nil
+        }
+        application.activate(options: [.activateAllWindows])
+        _ = await ensureFrontmost(application)
+        // Electron reports itself frontmost slightly before its renderer's
+        // accessibility tree is ready to accept actions.
+        try? await Task.sleep(for: .milliseconds(500))
+        return previous
+    }
+
+    private func ensureFrontmost(_ application: NSRunningApplication) async -> Bool {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+            return true
+        }
+        application.activate(options: [.activateAllWindows])
+        for _ in 0..<12 {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func restoreFocus(
+        to previous: NSRunningApplication?,
+        afterControlling application: NSRunningApplication
+    ) {
+        guard let previous,
+              previous.processIdentifier != application.processIdentifier,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier else {
+            return
+        }
+        previous.activate(options: [.activateAllWindows])
+    }
+
     private static func microphoneState(from state: QState?) -> QMicrophoneState {
         switch state {
         case .muted: .muted
@@ -200,17 +310,16 @@ final class DiscordLocalIntegration {
         }
     }
 
-    private static func postMuteShortcut(to processIdentifier: pid_t) -> Bool {
+    private static func postShortcut(keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
         guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 46, keyDown: false) else {
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
             return false
         }
-        let flags: CGEventFlags = [.maskCommand, .maskShift]
         keyDown.flags = flags
         keyUp.flags = flags
-        keyDown.postToPid(processIdentifier)
-        keyUp.postToPid(processIdentifier)
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
         return true
     }
 

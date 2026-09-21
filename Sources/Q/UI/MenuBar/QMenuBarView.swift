@@ -251,6 +251,12 @@ struct QMenuBarView: View {
             Text(meetingProviderDetail)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+
+            if let triplePressAction = model.meetingTriplePressActionTitle {
+                Text(triplePressAction)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)

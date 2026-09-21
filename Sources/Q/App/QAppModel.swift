@@ -394,6 +394,14 @@ final class QAppModel: ObservableObject {
         }
     }
 
+    var meetingTriplePressActionTitle: String? {
+        guard selectedMode == .meetings else { return nil }
+        let provider = selectedMeetingProvider ?? activeMeetingSession?.provider
+        guard provider == .discord,
+              meetingSessions[.discord]?.isActive == true else { return nil }
+        return "Triple press Q · Deafen / undeafen"
+    }
+
     var integrationConnectionLabel: String? {
         switch selectedMode {
         case .aiAgents:
@@ -748,6 +756,13 @@ final class QAppModel: ObservableObject {
             title: event.rawValue,
             detail: "\(currentModeName) · \(selectedStateID)"
         )
+        if event == .triplePress,
+           QMeetingButtonPolicy.triplePressAction(
+               hasActiveDiscordCall: meetingSessions[.discord]?.isActive == true
+           ) == .toggleDiscordDeafen {
+            toggleDiscordDeafen()
+            return
+        }
         if event == .triplePress {
             codexIntegration.openNewChat()
             NotificationCenter.default.post(
@@ -1028,6 +1043,43 @@ final class QAppModel: ObservableObject {
             }
             let desired: QMicrophoneState = meeting.state == .muted ? .unmuted : .muted
             model.handleMeetingControlResult(result, provider: provider, desired: desired)
+        }
+    }
+
+    private func toggleDiscordDeafen() {
+        enqueueMeetingControl { model in
+            let result = await model.discordIntegration.toggleDeafen()
+            let stateLabel: String
+            let outcome: QDiagnosticOutcome
+            switch result {
+            case .confirmed(let deafened):
+                stateLabel = deafened ? "Deafened" : "Undeafened"
+                outcome = .confirmed
+                if deafened { model.updateMeetingState(.muted, provider: .discord) }
+            case .sentUnconfirmed:
+                stateLabel = "Deafen command sent · state unconfirmed"
+                outcome = .unconfirmed
+            case .permissionDenied:
+                stateLabel = "Allow Accessibility control"
+                outcome = .failed
+            case .unavailable:
+                stateLabel = "No active Discord call"
+                outcome = .failed
+            case .failed:
+                stateLabel = "Could not control Discord deafen"
+                outcome = .failed
+            }
+            model.recordDiagnostic(
+                category: "meeting",
+                title: "Discord · \(stateLabel)",
+                detail: "Triple press",
+                outcome: outcome
+            )
+            NotificationCenter.default.post(
+                name: .qShowGestureStatus,
+                object: nil,
+                userInfo: ["mode": "Discord", "state": stateLabel]
+            )
         }
     }
 

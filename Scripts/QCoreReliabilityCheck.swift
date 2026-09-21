@@ -39,6 +39,21 @@ enum QCoreReliabilityCheck {
         precondition(QAgentSlotResolver.scene(for: slots).leds[0].color == .blue)
         precondition(QAgentSlotResolver.scene(for: slots).leds[1].color == .amber)
 
+        precondition(
+            QMeetingControlVocabulary.deafenToggleState(label: "Deafen", isOn: true) == true
+        )
+        precondition(
+            QMeetingControlVocabulary.deafenButtonTargetState(label: "Undeafen") == false
+        )
+        precondition(
+            QMeetingButtonPolicy.triplePressAction(hasActiveDiscordCall: true) ==
+                .toggleDiscordDeafen
+        )
+        precondition(
+            QMeetingButtonPolicy.triplePressAction(hasActiveDiscordCall: false) ==
+                .useGlobalAssignment
+        )
+
         print("QCore reliability checks passed")
     }
 }

@@ -115,6 +115,18 @@ public enum QMeetingControlVocabulary {
         return shouldMute ? state == .unmuted : state == .muted
     }
 
+    public static func deafenToggleState(label rawLabel: String, isOn: Bool) -> Bool? {
+        guard isDeafenControl(rawLabel) else { return nil }
+        return isOn
+    }
+
+    public static func deafenButtonTargetState(label rawLabel: String) -> Bool? {
+        let label = normalized(rawLabel)
+        if undeafenTerms.contains(label) { return false }
+        if deafenTerms.contains(label) { return true }
+        return nil
+    }
+
     /// Electron can expose a persistent toggle named "Mute". Here the label
     /// names the setting rather than the next action, so its AX value is the
     /// authoritative microphone state.
@@ -142,10 +154,17 @@ public enum QMeetingControlVocabulary {
         "mute microphone", "mute mic", "turn off microphone", "mute my audio",
         "silenciar microfono", "silenciar audio", "desactivar microfono", "desactivar audio"
     ]
+    private static let deafenTerms = ["deafen", "ensordecer"]
+    private static let undeafenTerms = ["undeafen", "desensordecer", "dejar de ensordecer"]
     private static let leaveTerms = [
         "leave", "leave call", "leave meeting", "hang up", "end call",
         "salir", "abandonar", "finalizar llamada", "colgar"
     ]
+
+    private static func isDeafenControl(_ rawLabel: String) -> Bool {
+        let label = normalized(rawLabel)
+        return undeafenTerms.contains(label) || deafenTerms.contains(label)
+    }
 }
 
 public enum QMeetingSurfaceClassifier {

@@ -104,6 +104,27 @@ struct QMeetingArbiterTests {
         ) == .unknown)
     }
 
+    @Test func discordDeafenControlsUseToggleValueAndActionLabels() {
+        #expect(QMeetingControlVocabulary.deafenToggleState(label: "Deafen", isOn: true) == true)
+        #expect(QMeetingControlVocabulary.deafenToggleState(label: "Deafen", isOn: false) == false)
+        #expect(QMeetingControlVocabulary.deafenToggleState(label: "Mute", isOn: true) == nil)
+        #expect(QMeetingControlVocabulary.deafenButtonTargetState(label: "Deafen") == true)
+        #expect(QMeetingControlVocabulary.deafenButtonTargetState(label: "Undeafen") == false)
+        #expect(QMeetingControlVocabulary.deafenButtonTargetState(label: "Output Options") == nil)
+        #expect(QMeetingControlVocabulary.deafenButtonTargetState(
+            label: "Soundboard disabled when deafened"
+        ) == nil)
+    }
+
+    @Test func activeDiscordCallOwnsTriplePressInEveryMode() {
+        #expect(QMeetingButtonPolicy.triplePressAction(
+            hasActiveDiscordCall: true
+        ) == .toggleDiscordDeafen)
+        #expect(QMeetingButtonPolicy.triplePressAction(
+            hasActiveDiscordCall: false
+        ) == .useGlobalAssignment)
+    }
+
     @Test func opaqueNewTeamsCallWindowIsRecognizedWithoutGuessingFromOrdinaryChat() {
         #expect(QMeetingSurfaceClassifier.hasTeamsMeetingWindow(
             windowTitles: ["Meeting compact view | Alex | Microsoft Teams"]
