@@ -1,7 +1,13 @@
-# Q 0.3.0 private beta
+# Q 0.3.1 private beta
 
-Q 0.3.0 is the first beta intended for testing on other Macs. It pairs with Q
+Q 0.3.1 is the current beta intended for testing on other Macs. It pairs with Q
 firmware 0.2.3.
+
+## Fixed in 0.3.1
+
+- First-run setup stays visible and returns until setup is explicitly finished.
+- Q refuses to run from a mounted installer, preventing an older DMG copy from
+  masquerading as the installed application.
 
 ## What is new
 
@@ -22,7 +28,7 @@ creates `~/.claude/settings.json.q-backup` before merging Q's hook entries.
 
 ## Installation
 
-1. Open `Q-0.3.0.dmg` and drag Q into Applications.
+1. Open `Q-0.3.1.dmg` and drag Q into Applications.
 2. Launch Q. If macOS blocks the private beta, use System Settings → Privacy &
    Security → Open Anyway.
 3. Complete Set up Q and grant Accessibility.

@@ -37,6 +37,11 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "app.q", category: "status-item")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !isRunningFromInstallerVolume else {
+            presentInstallerVolumeWarning()
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
         NSApp.applicationIconImage = QBrandAssets.appIcon
         configureStatusItem()
@@ -49,6 +54,29 @@ final class QAppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await QAppModel.shared.start()
         }
+    }
+
+    private var isRunningFromInstallerVolume: Bool {
+        Bundle.main.bundleURL.standardizedFileURL.path.hasPrefix("/Volumes/")
+    }
+
+    private func presentInstallerVolumeWarning() {
+        logger.notice("Refusing to run Q from a mounted installer volume")
+        NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = QBrandAssets.appIcon
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Move Q to Applications"
+        alert.informativeText = "Q is still inside its installer. Drag Q onto the Applications folder, eject the installer, then open Q from Applications."
+        alert.addButton(withTitle: "Show Installer")
+        alert.addButton(withTitle: "Quit")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+        }
+        NSApp.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

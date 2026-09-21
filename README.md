@@ -1,6 +1,6 @@
 # Q
 
-Current private-beta release: **Q 0.3.0**, paired with **firmware 0.2.3**.
+Current private-beta release: **Q 0.3.1**, paired with **firmware 0.2.3**.
 
 For the complete product, hardware, architecture, protocol, contributor, and
 extension guide, see [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md).

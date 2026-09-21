@@ -6,7 +6,7 @@ integration, animation, or button action.
 
 It describes the repository as it exists today:
 
-- macOS app version: **0.3.0**
+- macOS app version: **0.3.1**
 - firmware version: **0.2.3**
 - serial protocol version: **1**
 - target hardware: **Seeed Studio XIAO ESP32-C3 + Q production PCB**
