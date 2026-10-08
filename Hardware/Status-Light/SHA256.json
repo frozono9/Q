@@ -1,0 +1,18 @@
+{
+  ".gitattributes": "316f25d47837098fc1ab33d2ced34e10e8405a98dd1b131ad67eb3cb9360786d",
+  "BOM-JLCPCB-top-SMD.csv": "b01fd1b2204421984f9e4fa29de3f30bcbb1b1c62d5130a5a86d5f7728168159",
+  "BOM-readable.csv": "87589c737cdb69c78d3bb99a91f8af3114281f2797f3314473a1d06f476ce812",
+  "BUILD.md": "71f5a9b43444ca061d239e3262336684599668b58595b96b26921e3d11f3f922",
+  "CPL-JLCPCB-top-SMD.csv": "2798d2605591f36b4d2e549ea3dfecc497b50ef95fe1ccf25666ec3b980730ba",
+  "CPL-readable.csv": "6f982dca19c8569e1104248229d7f617af7e5686c161d3d1ab20f798c6df8422",
+  "DRC-2026-10-08.jpg": "ed9179007c01249cffeaacb993177cba9a9887ae400ca15ab3128f98671c878e",
+  "Original-Exports/3D_PCB1_2026-10-08.step": "b33060dcdcfba6da8f000a1ab49637ded07f297f812114489f077f449696d047",
+  "Original-Exports/BOM_Board1_PCB1_2026-10-08.csv": "32d175e47d29490eece8290fffefc2ec120e84c44623b63e48c7a0ce2610eb8d",
+  "Original-Exports/Gerber_PCB1_2026-10-08.zip": "e19ee06da6673a8be5b523145547cb5c016932ceed2e657a6feb21c9df7509a5",
+  "Original-Exports/Netlist_PCB1_2026-10-08.tel": "bcc0b947ca789270ff8657ee406b59963c0a19e9e7a25eeb19dfdd9af452533f",
+  "Original-Exports/PickAndPlace_PCB1_2026_10_08.csv": "005edc2c12aa196bf23dba9a220065cae4a956a1ca29330a4ff9fa5fcc40b6a9",
+  "Original-Exports/ProPrj_Status Light_2026-10-08.epro2": "fbad3470deb8c7685f9aa5a3bd1d28c76d1f0c608a7360328f48586b9414c94b",
+  "Original-Exports/SCH_Schematic1_1-P1_2026-10-08.svg": "f6a4ecd49940797838f15e188529b1375dbcde3c3a85fea12c01d2c14ef31e52",
+  "Original-Exports/SCH_Schematic1_2026-10-08.pdf": "c5dfe0c8268b0e5e4167e45baface51ff28ebf6f8326d6a88d77eb55fc99f32f",
+  "README.md": "ec4061bbed3a09cde39c9ce6c667143b19a194ace0cb9c34518d83af6876ef0f"
+}

@@ -32,6 +32,10 @@ For held actions, firmware emits `B|long` when the threshold is crossed and
 
 ## Hardware mapping
 
+PCB artwork, schematic, BOM and placement files are in
+[`Hardware/Status-Light`](../Hardware/Status-Light/README.md). The exported PCB
+netlist matches the XIAO pin assignments below.
+
 | LED | Red | Green | Blue |
 | --- | --- | --- | --- |
 | LED1 | GPIO3 / D1 | GPIO4 / D2 | GPIO5 / D3 |

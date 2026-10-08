@@ -1,0 +1,3 @@
+# Preserve vendor exports byte-for-byte and keep generated files out of source diffs.
+Original-Exports/** binary
+*.csv text eol=lf

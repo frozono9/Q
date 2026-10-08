@@ -27,6 +27,19 @@ be given a persistent name keyed to its stable hardware identifier.
 
 Q is a local-first macOS menu-bar application for a three-LED USB-C status device. The focused MVP ships with five factory modes: AI Agents, Availability, Meetings, Pomodoro, and Relaxing. Users can also create any number of Custom modes; they appear only after creation and can be included in or excluded from the button's mode cycle individually.
 
+## Build the physical Q
+
+The [Status Light hardware package](Hardware/Status-Light/README.md) contains the
+editable EasyEDA Pro project, schematic, Gerbers and drill files, full component
+list, placement files, and a STEP model. The board uses a **XIAO ESP32-C3** with
+three common-anode RGB LEDs and one button.
+
+For assembly service, use the matching top-side SMD BOM/CPL pair described in the
+hardware guide; the XIAO is fitted separately on the bottom. Follow the
+[PCB fabrication and assembly guide](Hardware/Status-Light/BUILD.md), then
+[flash the firmware](Firmware/README.md). Enclosure print files and the illustrated
+physical assembly guide are still being prepared for this repository.
+
 ## First run and support
 
 The menu-bar app opens a first-run setup check that verifies the physical Q,

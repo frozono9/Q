@@ -487,6 +487,11 @@ Codex files / Discord log / timer / user action
 
 ## 10. Hardware
 
+The [Status Light hardware directory](Hardware/Status-Light/README.md) contains
+original EasyEDA exports and matching assembly CSVs. See the
+[fabrication and assembly guide](Hardware/Status-Light/BUILD.md) for file selection,
+the separate XIAO mounting step, and checks before connecting USB.
+
 The production board contains:
 
 | Quantity | Part | Designators | Notes |
