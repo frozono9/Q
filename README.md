@@ -34,6 +34,9 @@ editable EasyEDA Pro project, schematic, Gerbers and drill files, full component
 list, placement files, and a STEP model. The board uses a **XIAO ESP32-C3** with
 three common-anode RGB LEDs and one button.
 
+[Download the complete hardware ZIP](https://github.com/frozono9/Q/releases/download/hardware-status-light-2026-10-08/Q-Status-Light-Hardware-2026-10-08.zip)
+from the [hardware snapshot release](https://github.com/frozono9/Q/releases/tag/hardware-status-light-2026-10-08).
+
 For assembly service, use the matching top-side SMD BOM/CPL pair described in the
 hardware guide; the XIAO is fitted separately on the bottom. Follow the
 [PCB fabrication and assembly guide](Hardware/Status-Light/BUILD.md), then
